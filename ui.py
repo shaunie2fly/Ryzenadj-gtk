@@ -16,6 +16,29 @@ import logging
 log = logging.getLogger(__name__)
 
 
+def get_cpu_name() -> str:
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if "model name" in line:
+                    name = line.split(":", 1)[1].strip()
+                    # Clean up graphics/processor suffixes robustly
+                    if " w/" in name:
+                        name = name.split(" w/", 1)[0]
+                    if " with " in name:
+                        name = name.split(" with ", 1)[0]
+                    name = name.replace("Processor", "")
+                    # Shorten name if too long
+                    if len(name) > 35:
+                        name = name[:32] + "..."
+                    return name.strip()
+    except Exception:
+        pass
+    import platform
+    return platform.processor() or "AMD Ryzen"
+
+
+
 def build_dependency_missing_page(app) -> Adw.ToolbarView:
     """Build the page shown when the ryzenadj binary is missing from the system."""
     toolbar = Adw.ToolbarView()
@@ -481,7 +504,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     subtitle_lbl.add_css_class("hero-subtitle")
     subtitle_box.append(subtitle_lbl)
 
-    cpu_badge = Gtk.Label(label=app.cpu_family)
+    cpu_badge = Gtk.Label(label=get_cpu_name())
     cpu_badge.add_css_class("hero-cpu-badge")
     subtitle_box.append(cpu_badge)
     
@@ -1121,7 +1144,7 @@ def build_main_window(app) -> Adw.ApplicationWindow:
     # Header Window Title (updates dynamically on page change)
     app.window_title = Adw.WindowTitle()
     app.window_title.set_title("Dashboard")
-    app.window_title.set_subtitle(app.cpu_family)
+    app.window_title.set_subtitle(get_cpu_name())
     content_header.set_title_widget(app.window_title)
 
     def update_header_title(stack, _paramspec):

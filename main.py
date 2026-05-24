@@ -591,7 +591,7 @@ class RyzenadjApp(Adw.Application):
     def _update_status_label(self) -> None:
         # Update subtitle in header
         if self.window_title:
-            self.window_title.set_subtitle(self.cpu_family)
+            self.window_title.set_subtitle(ui_module.get_cpu_name())
 
     # ── Apply ──────────────────────────────────────────────────────────────────
 
