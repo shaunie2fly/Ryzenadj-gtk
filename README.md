@@ -30,6 +30,14 @@ If you don't know what these are, here are some quick examples:
 
 ---
 
+## 🔒 Security & Sudo Access
+
+`ryzenadj` requires root privileges to read and write directly to your motherboard's memory registers. To prevent the GUI from constantly interrupting you with password prompts every 1 second while monitoring, **Ryzenadj-gtk automatically configures passwordless sudo for the ryzenadj command during installation.**
+
+When you install via `makepkg -si` or `./install.sh`, a strict, locked-down rule is added to `/etc/sudoers.d/ryzenadj-gtk`. This rule *only* allows the execution of `ryzenadj` and specific `systemctl` commands (for the boot-apply service) without a password. The GUI application itself continues to run securely under your normal, unprivileged user account.
+
+---
+
 ## Requirements
 
 *   Python 3.11+

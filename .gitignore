@@ -1,5 +1,4 @@
 # Build and package files
-src/
 pkg/
 *.pkg.tar.zst
 

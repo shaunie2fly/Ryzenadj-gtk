@@ -70,45 +70,52 @@ def build_dependency_missing_page(app) -> Adw.ToolbarView:
 # ─── Auth-required page ───────────────────────────────────────────────────────
 
 def build_auth_required_page(app) -> Adw.ToolbarView:
-    """Build the locked-out page shown when polkit auth is denied or cancelled.
-
-    Explains WHY the app needs root, gives a sudoers hint, and offers a
-    Retry button that re-invokes the single pkexec call (no retry loop).
-    """
     toolbar = Adw.ToolbarView()
 
-    # ── Header bar (consistent with main window chrome) ──
     header = Adw.HeaderBar()
     header.add_css_class("main-header")
     win_title = Adw.WindowTitle()
     win_title.set_title("Ryzenadj-gtk")
-    win_title.set_subtitle("Authentication Required")
+    win_title.set_subtitle("System Configuration Required")
     header.set_title_widget(win_title)
     toolbar.add_top_bar(header)
 
-    # ── Central status page ──
     status = Adw.StatusPage()
     status.set_icon_name("dialog-password-symbolic")
-    status.set_title("Passwordless Sudo Configuration Required")
+    status.set_title("Background Access Required")
     status.set_description(
-        "Ryzenadj-gtk requires a passwordless sudoers configuration to run.\n\n"
-        "Running directly out of the repository without installation is not supported.\n"
-        "Please install the application using your preferred installation method\n"
-        "to configure secure passwordless sudo access:\n\n"
-        "  • For Arch Linux: run 'makepkg -si'\n"
-        "  • For other distributions: run 'sudo ./install.sh'\n\n"
-        "This ensures silent, real-time background tracking without continuously\n"
-        "prompting you for administrator privileges."
+        "Ryzenadj-gtk requires a background security rule to monitor and adjust hardware "
+        "power states without constantly interrupting you for a password."
     )
 
-    # ── Retry button ──
-    retry_btn = Gtk.Button(label="🔄  Retry Verification")
-    retry_btn.add_css_class("suggested-action")
-    retry_btn.add_css_class("pill")
-    retry_btn.set_margin_top(8)
-    retry_btn.connect("clicked", lambda _b: app._retry_auth())
+    btn_fix = Gtk.Button(label="Grant Background Access")
+    btn_fix.add_css_class("suggested-action")
+    btn_fix.add_css_class("pill")
+    btn_fix.set_margin_top(8)
+    btn_fix.set_halign(Gtk.Align.CENTER)
+    
+    def on_fix(_b):
+        import subprocess
+        script = """cat << 'INNEREOF' > /etc/sudoers.d/ryzenadj-gtk
+ALL ALL=(ALL) NOPASSWD: /usr/bin/ryzenadj
+ALL ALL=(ALL) NOPASSWD: /usr/local/bin/ryzenadj
+ALL ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable ryzenadj-gtk-apply.service
+ALL ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable ryzenadj-gtk-apply.service
+ALL ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable --now ryzenadj-gtk-apply.service
+ALL ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable --now ryzenadj-gtk-apply.service
+ALL ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-enabled ryzenadj-gtk-apply.service
+INNEREOF
+chmod 440 /etc/sudoers.d/ryzenadj-gtk
+chown root:root /etc/sudoers.d/ryzenadj-gtk"""
+        try:
+            res = subprocess.run(["pkexec", "sh", "-c", script])
+            if res.returncode == 0:
+                app._retry_auth()
+        except Exception:
+            pass
 
-    status.set_child(retry_btn)
+    btn_fix.connect("clicked", on_fix)
+    status.set_child(btn_fix)
     toolbar.set_content(status)
     return toolbar
 

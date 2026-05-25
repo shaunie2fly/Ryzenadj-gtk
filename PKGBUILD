@@ -17,12 +17,12 @@ package() {
 
   # Install Python files
   install -d "$pkgdir/usr/share/ryzenadj-gtk"
-  install -m644 *.py "$pkgdir/usr/share/ryzenadj-gtk/"
+  install -m644 src/*.py "$pkgdir/usr/share/ryzenadj-gtk/"
   chmod 755 "$pkgdir/usr/share/ryzenadj-gtk/app.py"
 
   # Install Icon (SVG is scalable, so it goes to hicolor/scalable)
   install -d "$pkgdir/usr/share/icons/hicolor/scalable/apps"
-  install -m644 "ryzenadj-gtk.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg"
+  install -m644 "src/assets/ryzenadj-gtk.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg"
 
   # Install Desktop file
   install -Dm644 "com.marley.ryzenadj-gtk.desktop" "$pkgdir/usr/share/applications/com.marley.ryzenadj-gtk.desktop"

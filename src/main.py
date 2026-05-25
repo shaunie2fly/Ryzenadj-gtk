@@ -105,7 +105,7 @@ class RyzenadjApp(Adw.Application):
             if display:
                 theme = Gtk.IconTheme.get_for_display(display)
                 curr_dir = os.path.dirname(os.path.abspath(__file__))
-                theme.add_search_path(curr_dir)
+                theme.add_search_path(os.path.join(curr_dir, "assets"))
         except Exception as e:
             log.debug("Failed to register local icon search path: %s", e)
 

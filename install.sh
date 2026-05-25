@@ -24,20 +24,20 @@ mkdir -p "$APP_DIR"
 
 # Install Python source files
 echo "  -> Copying Python files..."
-cp *.py "$INSTALL_DIR/"
+cp src/*.py "$INSTALL_DIR/"
 chmod 644 "$INSTALL_DIR"/*.py
 chmod 755 "$INSTALL_DIR/app.py"
 
 # Install icon (if a .png or .svg exists; otherwise skip)
-if [ -f "ryzenadj-gtk.png" ]; then
+if [ -f "src/assets/ryzenadj-gtk.png" ]; then
     echo "  -> Installing icon (PNG)..."
-    cp ryzenadj-gtk.png "$ICON_DIR/com.marley.ryzenadj-gtk.png"
+    cp src/assets/ryzenadj-gtk.png "$ICON_DIR/com.marley.ryzenadj-gtk.png"
     chmod 644 "$ICON_DIR/com.marley.ryzenadj-gtk.png"
-elif [ -f "ryzenadj-gtk.svg" ]; then
+elif [ -f "src/assets/ryzenadj-gtk.svg" ]; then
     echo "  -> Installing icon (SVG)..."
     SVG_ICON_DIR="/usr/share/icons/hicolor/scalable/apps"
     mkdir -p "$SVG_ICON_DIR"
-    cp ryzenadj-gtk.svg "$SVG_ICON_DIR/com.marley.ryzenadj-gtk.svg"
+    cp src/assets/ryzenadj-gtk.svg "$SVG_ICON_DIR/com.marley.ryzenadj-gtk.svg"
     chmod 644 "$SVG_ICON_DIR/com.marley.ryzenadj-gtk.svg"
 fi
 
