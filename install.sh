@@ -14,32 +14,28 @@ echo "==> Installing ryzenadj-gtk..."
 
 INSTALL_DIR="/usr/share/ryzenadj-gtk"
 BIN_DIR="/usr/bin"
-ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
 APP_DIR="/usr/share/applications"
 
 # Create directories
 mkdir -p "$INSTALL_DIR"
-mkdir -p "$ICON_DIR"
 mkdir -p "$APP_DIR"
 
-# Install Python source files
-echo "  -> Copying Python files..."
+# python files
+echo "  -> Copying Python files and assets..."
 cp src/*.py "$INSTALL_DIR/"
+cp -r src/assets "$INSTALL_DIR/"
 chmod 644 "$INSTALL_DIR"/*.py
 chmod 755 "$INSTALL_DIR/app.py"
+find "$INSTALL_DIR/assets" -type d -exec chmod 755 {} +
+find "$INSTALL_DIR/assets" -type f -exec chmod 644 {} +
 
-# Install icon (if a .png or .svg exists; otherwise skip)
-if [ -f "src/assets/ryzenadj-gtk.png" ]; then
-    echo "  -> Installing icon (PNG)..."
-    cp src/assets/ryzenadj-gtk.png "$ICON_DIR/com.marley.ryzenadj-gtk.png"
+# icon (png)
+for size in 256 512; do
+    ICON_DIR="/usr/share/icons/hicolor/${size}x${size}/apps"
+    mkdir -p "$ICON_DIR"
+    cp src/assets/com.marley.ryzenadj-gtk.png "$ICON_DIR/com.marley.ryzenadj-gtk.png"
     chmod 644 "$ICON_DIR/com.marley.ryzenadj-gtk.png"
-elif [ -f "src/assets/ryzenadj-gtk.svg" ]; then
-    echo "  -> Installing icon (SVG)..."
-    SVG_ICON_DIR="/usr/share/icons/hicolor/scalable/apps"
-    mkdir -p "$SVG_ICON_DIR"
-    cp src/assets/ryzenadj-gtk.svg "$SVG_ICON_DIR/com.marley.ryzenadj-gtk.svg"
-    chmod 644 "$SVG_ICON_DIR/com.marley.ryzenadj-gtk.svg"
-fi
+done
 
 # Install desktop entry
 echo "  -> Installing .desktop file..."
@@ -65,7 +61,7 @@ cp ryzenadj-gtk-apply.service /usr/lib/systemd/system/ryzenadj-gtk-apply.service
 chmod 644 /usr/lib/systemd/system/ryzenadj-gtk-apply.service
 systemctl daemon-reload
 
-# Configure passwordless sudo drop-in safely
+# Configure passwordless sudo drop-in safely (auto setup)
 echo "  -> Configuring secure passwordless sudo for ryzenadj & systemctl..."
 SUDOERS_FILE="/etc/sudoers.d/ryzenadj-gtk"
 TEMP_SUDOERS=$(mktemp)
@@ -97,7 +93,8 @@ if visudo -cf "$TEMP_SUDOERS" >/dev/null 2>&1; then
     mv "$TEMP_SUDOERS" "$SUDOERS_FILE"
     chmod 440 "$SUDOERS_FILE"
     chown root:root "$SUDOERS_FILE"
-    echo "     Sudoers drop-in configured successfully."
+    echo "     Sudoers drop-in configured successfully. Changes usually take effect immediately."
+    echo "     If you still get prompted for a password, a reboot will ensure everything is active."
 else
     rm -f "$TEMP_SUDOERS"
     echo "     WARNING: Sudoers rule validation failed! Passwordless sudo was not configured." >&2

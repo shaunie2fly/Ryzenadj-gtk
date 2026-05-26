@@ -1,7 +1,4 @@
-"""
-CSS styles for ryzenadj-gtk
-Polished GNOME/Adwaita styling for Ryzenadj-gtk.
-"""
+"""css"""
 
 CSS = """
 /* ─── Window & Background ─────────────────────────────────── */
@@ -425,5 +422,19 @@ progressbar.usage-bar.bottleneck progress {
     color: alpha(@window_fg_color, 0.8);
     font-size: 13px;
     margin-top: 4px;
+}
+
+/* ─── Adjustment Buttons (+/- 0.5) ───────────────────────── */
+.adj-btn {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    transition: all 0.2s ease;
+    opacity: 0.7;
+}
+
+.adj-btn:hover {
+    opacity: 1.0;
+    background-color: alpha(@window_fg_color, 0.08);
 }
 """

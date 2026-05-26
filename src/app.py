@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-ryzenadj-gtk - GTK4/Libadwaita GUI wrapper for ryzenadj
-Entry point.
-"""
+"""entry"""
 import sys
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)

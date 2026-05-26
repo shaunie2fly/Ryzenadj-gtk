@@ -1,7 +1,4 @@
-"""
-main.py - RyzenadjApp application class for ryzenadj-gtk
-Handles: app lifecycle, actions, refresh timer, apply logic, about dialog.
-"""
+"""main app"""
 import sys
 import os
 import logging
@@ -20,7 +17,7 @@ log = logging.getLogger(__name__)
 
 APP_ID    = "com.marley.ryzenadj-gtk"
 APP_NAME  = "Ryzenadj-gtk"
-APP_VER   = "1.0.0"
+APP_VER   = "1.5.0"
 REFRESH_INTERVAL_MS = 1000  # 1 s auto-refresh
 
 
@@ -42,6 +39,8 @@ class RyzenadjApp(Adw.Application):
         self._refreshing: bool = False
         self.enthusiast_mode: bool = False
         self.applied_settings: dict = {}
+        self.supported_params: set = set()
+        self._initial_load_error: str | None = None
         self.ui_settings: dict = {
             "theme": "default",
             "auto_switch": False,
@@ -55,7 +54,6 @@ class RyzenadjApp(Adw.Application):
         self.dbus_system_connection = None
         self.btn_refresh = None          # set by build_main_window
         self.window_title = None         # set by build_main_window
-        self.supported_params: set = set()
         self._auth_granted: bool | None = None  # None=pending, True=ok, False=denied
         self._load_ui_settings()
 
@@ -199,7 +197,13 @@ class RyzenadjApp(Adw.Application):
                 else:
                     val = float(meta.get("default", meta["min"]))
 
+            row._updating_programmatically = True
             slider.set_value(val)
+            row._updating_programmatically = False
+            
+            # Update the label to reflect current state (Auto or Value)
+            if hasattr(row, "_update_val_label"):
+                row._update_val_label(slider, False)
 
     def _on_initial_load_done(self, cpu_family: str, info: dict, supported: set, auth_ok: bool) -> bool:
         """GTK main-thread callback: populate UI or show auth-required page."""
@@ -237,30 +241,29 @@ class RyzenadjApp(Adw.Application):
             val_key = getattr(card, "_val_key", None)
             visible = val_key in info if val_key else True
             card.set_visible(visible)
-            parent = card.get_parent()
-            if parent and isinstance(parent, Gtk.FlowBoxChild):
-                parent.set_visible(visible)
 
         self._update_dashboard_cards()
         self._update_slider_badges()
         self._update_status_label()
 
-        # Dynamically check system diagnostics for Secure Boot / Kernel Lockdown
+        # Check system diagnostics (Secure Boot / Lockdown)
         diag = ryzen.check_system_lockdown_status()
         if hasattr(self, "diagnostic_banner"):
-            # Show banner if Secure Boot or Lockdown is active, AND the bypass driver is not loaded
             is_locked = (diag["secure_boot"] or diag["lockdown_active"]) and not diag["ryzen_smu_loaded"]
             self.diagnostic_banner.set_visible(is_locked)
-            
+
             reasons = []
             if diag["secure_boot"]:
-                reasons.append("Secure Boot is enabled")
+                reasons.append("Secure Boot enabled")
             if diag["lockdown_active"]:
-                reasons.append(f"Kernel Lockdown is active ({diag['lockdown_mode']})")
+                reasons.append(f"Lockdown active ({diag['lockdown_mode']})")
             if not diag["iomem_relaxed"]:
-                reasons.append("'iomem=relaxed' is missing from kernel command line")
-                
-            subtitle = f"⚠️ {', '.join(reasons)}. ryzenadj is unable to read/write settings without the 'ryzen_smu' kernel driver. Please load 'ryzen_smu' or disable restrictions."
+                reasons.append("iomem=relaxed missing")
+
+            if reasons:
+                subtitle = f"⚠️ {', '.join(reasons)}. Load 'ryzen_smu' driver or disable restrictions."
+            else:
+                subtitle = "⚠️ Restrictions active. Load 'ryzen_smu' driver or disable restrictions."
             self.diagnostic_banner.set_subtitle(subtitle)
 
         return False
@@ -749,7 +752,10 @@ class RyzenadjApp(Adw.Application):
                 if response == "reboot":
                     os.system("reboot")
                 else:
-                    self.quit() # Exit app as it's now in a "wiped" state
+                    # Reset state and refresh UI instead of quitting
+                    self.pending_settings.clear()
+                    self.applied_settings.clear()
+                    self.on_refresh_clicked(None)
 
             reboot_dialog.connect("response", on_reboot_response)
             reboot_dialog.present()

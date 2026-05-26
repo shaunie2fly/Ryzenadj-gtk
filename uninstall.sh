@@ -1,6 +1,5 @@
 #!/bin/bash
-# ryzenadj-gtk Uninstall Script
-# Run with: sudo ./uninstall.sh
+# uninstall
 
 set -e
 
@@ -14,8 +13,10 @@ echo "==> Removing ryzenadj-gtk..."
 rm -rf /usr/share/ryzenadj-gtk
 rm -f  /usr/bin/ryzenadj-gtk
 rm -f  /usr/share/applications/com.marley.ryzenadj-gtk.desktop
-rm -f  /usr/share/icons/hicolor/256x256/apps/com.marley.ryzenadj-gtk.png
-rm -f  /usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg
+for size in 256 512; do
+    rm -f "/usr/share/icons/hicolor/${size}x${size}/apps/com.marley.ryzenadj-gtk.png"
+done
+rm -f  /usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg 2>/dev/null || true
 
 # Disable and remove systemd service
 echo "  -> Removing systemd service..."
@@ -26,8 +27,9 @@ systemctl daemon-reload
 # Remove system settings
 rm -rf /etc/ryzenadj-gtk
 
-# Remove secure sudoers drop-in file
+# Remove secure sudoers drop-in file (installed by install.sh or AUR package)
 rm -f /etc/sudoers.d/ryzenadj-gtk
+echo "     Sudoers rules removed (if present)."
 
 update-desktop-database -q 2>/dev/null || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true

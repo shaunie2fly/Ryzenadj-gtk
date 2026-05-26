@@ -1,12 +1,4 @@
-"""
-ui.py - Main UI builder for ryzenadj-gtk
-Builds the full Adw.ApplicationWindow with tabbed pages:
-  - Dashboard (live monitoring)
-  - Power (STAPM/PPT sliders)
-  - Current (VRM/EDC sliders)
-  - Thermal (temperature limits)
-  - Timing (time constants)
-"""
+"""ui builder"""
 import init_gi
 import gi
 from gi.repository import Gtk, Adw, Gdk, GLib, Pango, GObject
@@ -84,16 +76,16 @@ def build_auth_required_page(app) -> Adw.ToolbarView:
     status.set_icon_name("dialog-password-symbolic")
     status.set_title("Background Access Required")
     status.set_description(
-        "Ryzenadj-gtk requires a background security rule to monitor and adjust hardware "
-        "power states without constantly interrupting you for a password."
+        "The installer should have already set up passwordless sudo for ryzenadj.\n\n"
+        "Ryzenadj-gtk needs this background rule to monitor and adjust hardware "
+        "without constantly asking for your password."
     )
 
     btn_fix = Gtk.Button(label="Grant Background Access")
     btn_fix.add_css_class("suggested-action")
     btn_fix.add_css_class("pill")
-    btn_fix.set_margin_top(8)
     btn_fix.set_halign(Gtk.Align.CENTER)
-    
+
     def on_fix(_b):
         import subprocess
         script = """cat << 'INNEREOF' > /etc/sudoers.d/ryzenadj-gtk
@@ -115,7 +107,24 @@ chown root:root /etc/sudoers.d/ryzenadj-gtk"""
             pass
 
     btn_fix.connect("clicked", on_fix)
-    status.set_child(btn_fix)
+
+    btn_reboot = Gtk.Button(label="Reboot Now")
+    btn_reboot.add_css_class("destructive-action")
+    btn_reboot.add_css_class("pill")
+    btn_reboot.set_halign(Gtk.Align.CENTER)
+    btn_reboot.set_margin_top(8)
+
+    def on_reboot(_b):
+        import subprocess
+        subprocess.run(["reboot"])
+
+    btn_reboot.connect("clicked", on_reboot)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    box.append(btn_fix)
+    box.append(btn_reboot)
+    status.set_child(box)
+
     toolbar.set_content(status)
     return toolbar
 
@@ -148,7 +157,7 @@ def _fmt(value: float, divisor: float, unit: str) -> str:
 
 # ─── Slider row ───────────────────────────────────────────────────────────────
 
-def _build_slider_row(meta: dict, current_info: dict, pending: dict, is_supported: bool = True) -> Gtk.ListBoxRow:
+def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, is_supported: bool = True) -> Gtk.ListBoxRow:
     """
     Build a custom Gtk.ListBoxRow with:
       - Mono command-line flag name (--param) on the top-left
@@ -248,13 +257,8 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, is_supporte
     cur_badge.set_valign(Gtk.Align.CENTER)
     top_box.append(cur_badge)
 
-    main_box.append(top_box)
-
     # ── Bottom Row (Slider + Target badge) ──
-    bottom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    bottom_box.set_margin_top(10)
-    
-    # Slider setup
+    # Slider setup (Moved up to avoid UnboundLocalError in on_remove)
     if param in pending:
         init_val = float(pending[param])
     elif cur_cli is not None:
@@ -262,11 +266,17 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, is_supporte
     else:
         init_val = float(meta.get("default", lo))
 
+    # Allow 0.5 unit increments if requested via buttons, but keep slider step sane
+    # We reduce the adjustment step to 0.5 units to allow finer keyboard control too
+    calc_step = max(0.5 * div, 1.0)
+    if step < calc_step:
+        calc_step = step
+
     adj = Gtk.Adjustment(
         value=init_val,
         lower=lo,
         upper=hi,
-        step_increment=step,
+        step_increment=calc_step,
         page_increment=step * 10,
         page_size=0,
     )
@@ -276,21 +286,127 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, is_supporte
     slider.set_draw_value(False)
     slider.set_tooltip_text(f"Range: {lo} – {hi} {meta['unit']}")
 
+    # Disable scroll wheel on slider to prevent accidental changes
+    scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
+    scroll_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    scroll_controller.connect("scroll", lambda *args: True)
+    slider.add_controller(scroll_controller)
+
+    # Remove from startup button (for settings without a clean "off" value like gfx-clk)
+    btn_remove = Gtk.Button(icon_name="edit-clear-symbolic")
+    btn_remove.add_css_class("flat")
+    btn_remove.set_tooltip_text("Remove this setting from startup/boot service (may require reboot to fully clear)")
+    btn_remove.set_valign(Gtk.Align.CENTER)
+    btn_remove.set_margin_start(4)
+
+    def on_remove(_b, p=param, m=meta, c_cli=cur_cli, sli=slider, l=lo):
+        ok, msg = ryzen.remove_setting_from_startup(p)
+        if ok:
+            if app:
+                if p in getattr(app, 'pending_settings', {}):
+                    del app.pending_settings[p]
+                if p in getattr(app, 'applied_settings', {}):
+                    del app.applied_settings[p]
+
+            # Reset slider toward live value if available
+            row._updating_programmatically = True
+            if c_cli is not None:
+                sli.set_value(c_cli)
+            else:
+                sli.set_value(float(m.get("default", l)))
+            row._updating_programmatically = False
+            
+            # Update label to Auto
+            target_badge.set_text("Target: Auto")
+
+            # Offer reboot dialog (consistent with factory reset / hard gates)
+            if app and app.win:
+                reboot_dialog = Adw.MessageDialog(
+                    transient_for=app.win,
+                    heading="Setting Removed from Startup",
+                    body=f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
+                )
+                reboot_dialog.add_response("later", "Later")
+                reboot_dialog.add_response("reboot", "Reboot Now")
+                reboot_dialog.set_default_response("reboot")
+                reboot_dialog.set_response_appearance("reboot", Adw.ResponseAppearance.SUGGESTED)
+
+                def on_reboot_response(d, response):
+                    if response == "reboot":
+                        import os
+                        os.system("reboot")
+
+                reboot_dialog.connect("response", on_reboot_response)
+                reboot_dialog.present()
+            else:
+                # Fallback if no window
+                if app and hasattr(app, "_show_toast"):
+                    app._show_toast(msg + "\nYou may need to reboot for the hardware to fully clear this setting.", is_error=False)
+        else:
+            if app and hasattr(app, "_show_toast"):
+                app._show_toast(msg, is_error=True)
+
+    btn_remove.connect("clicked", on_remove)
+    top_box.append(btn_remove)
+
+    main_box.append(top_box)
+
+    # ── Bottom Row Layout ──
+    bottom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    bottom_box.set_margin_top(10)
+    
+    # Minus Button
+    btn_minus = Gtk.Button(icon_name="list-remove-symbolic")
+    btn_minus.add_css_class("circular")
+    btn_minus.add_css_class("flat")
+    btn_minus.add_css_class("adj-btn")
+    btn_minus.set_tooltip_text(f"Decrease by 0.5 {dunit}")
+    
+    # Plus Button
+    btn_plus = Gtk.Button(icon_name="list-add-symbolic")
+    btn_plus.add_css_class("circular")
+    btn_plus.add_css_class("flat")
+    btn_plus.add_css_class("adj-btn")
+    btn_plus.set_tooltip_text(f"Increase by 0.5 {dunit}")
+
+    def on_adj_clicked(_btn, direction):
+        delta = 0.5 * div
+        if delta < 1.0:
+            delta = 1.0
+        new_val = slider.get_value() + (direction * delta)
+        slider.set_value(max(lo, min(hi, new_val)))
+
+    btn_minus.connect("clicked", on_adj_clicked, -1)
+    btn_plus.connect("clicked", on_adj_clicked, 1)
+
     # Target badge
     target_badge = Gtk.Label()
     target_badge.add_css_class("target-badge")
     target_badge.set_valign(Gtk.Align.CENTER)
     target_badge.set_size_request(100, -1)
 
-    def update_val_label(scale):
+    row._updating_programmatically = False
+
+    def update_val_label(scale, user_triggered=False):
+        if getattr(row, "_updating_programmatically", False):
+            return
+            
         v = scale.get_value()
-        target_badge.set_text(f"Target: {_fmt(v, div, dunit)}")
-        pending[param] = int(v)
+        # If it's already in pending, we update it. 
+        # If it's not in pending, we only add it if the user triggered the change.
+        if user_triggered or param in pending:
+            target_badge.set_text(f"Target: {_fmt(v, div, dunit)}")
+            pending[param] = int(v)
+        else:
+            target_badge.set_text("Target: Auto")
 
-    slider.connect("value-changed", update_val_label)
-    update_val_label(slider)  # set initial text
+    slider.connect("value-changed", lambda s: update_val_label(s, True))
+    row._update_val_label = update_val_label
+    update_val_label(slider, False)  # set initial text
 
+    bottom_box.append(btn_minus)
     bottom_box.append(slider)
+    bottom_box.append(btn_plus)
     bottom_box.append(target_badge)
     
     main_box.append(bottom_box)
@@ -311,7 +427,7 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, is_supporte
 
 def _fmt_limit(limit: float | None, unit: str) -> str:
     if limit is None or limit <= 0:
-        return "Uncapped"
+        return "Auto"
     if unit == "°C":
         return f"Limit: {limit:.0f}°C"
     if unit == "s":
@@ -836,7 +952,7 @@ def _build_slider_page(
             if not is_co and hasattr(app, "supported_params"):
                 is_supported = param in app.supported_params
 
-            row = _build_slider_row(meta, app.current_info, app.pending_settings, is_supported)
+            row = _build_slider_row(meta, app.current_info, app.pending_settings, app, is_supported)
             grp.add(row)
             app._slider_rows[meta["param"]] = row
 

@@ -1,7 +1,4 @@
-"""
-ryzen.py - backend for ryzenadj-gtk
-Handles: parsing ryzenadj -i output, applying settings, config persistence
-"""
+"""ryzen backend"""
 import subprocess
 import json
 import os
@@ -665,13 +662,50 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
     if param.startswith("set-co"):
         return True
 
+    # skin-temp-limit and apu-skin-temp fallbacks for mobile/APU
+    if param in ("skin-temp-limit", "apu-skin-temp"):
+        fam_lower = cpu_family.lower()
+        mobile_families = {
+            "strix", "phoenix", "hawk", "rembrandt", "barcelo", "cezanne", 
+            "lucienne", "renoir", "picasso", "raven", "mendocino", "sabin", 
+            "kraken", "krackan", "sonoma", "dragon", "fire", "dali", "pollock", 
+            "vangogh", "aerith", "sephiroth"
+        }
+        if any(fam in fam_lower for fam in mobile_families):
+            return True
+            
+        # check cpuinfo for mobile/ryzen ai
+        try:
+            with open("/proc/cpuinfo", "r") as f:
+                for line in f:
+                    if line.strip().startswith("model name"):
+                        model_name = line.split(":", 1)[1].strip().lower()
+                        if "ryzen" in model_name:
+                            if (
+                                " ai " in model_name or 
+                                " z1 " in model_name or 
+                                " z1 extreme" in model_name or
+                                any(suffix in model_name for suffix in ["370", "365", "375"])
+                            ):
+                                return True
+                            import re
+                            if re.search(r"\b\d{3,4}(u|h|hs|hx|g|ge)\b", model_name):
+                                return True
+        except Exception:
+            pass
+
+    # dgpu-skin-temp is often reported but unsupported on many newer APU-only or monolithic mobile chips
+    if param == "dgpu-skin-temp":
+        fam_lower = cpu_family.lower()
+        # Explicitly disable on Strix and other known monolithic APU families if they cause issues
+        if "strix" in fam_lower or "phoenix" in fam_lower or "hawk" in fam_lower:
+            return False
+
     # If ryzenadj's parsed supported set explicitly has it, it is supported.
     if supported_params and param in supported_params:
         return True
 
-    # Safeguards for CPU Overclocking parameters (oc-clk, oc-volt)
-    # They should only be enabled on unlocked HX / HK desktop-derived mobile processors,
-    # but NOT on standard U/HS APUs or the monolithic Ryzen AI series (e.g. AI HX 370).
+    # oc-clk / oc-volt only for unlocked HX/HK chips
     if param in ("oc-clk", "oc-volt"):
         fam_lower = cpu_family.lower()
         is_unlocked_hx = False
@@ -688,14 +722,14 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
             pass
         return is_unlocked_hx
 
-    # Smart fallbacks for GFX/iGPU clock forcing (gfx-clk) which is write-only or not in ryzenadj info table.
+    # gfx-clk fallbacks
     if param == "gfx-clk":
-        # 1. Check if any other iGPU indicators exist in supported_params
+        # check igpu indicators
         igpu_indicators = {"gfx-clk", "gfx-clock", "max-gfxclk", "min-gfxclk", "vrmgfx-current", "vrmgfxmax-current"}
         if supported_params and any(ind in supported_params for ind in igpu_indicators):
             return True
 
-        # 2. Check CPU family or CPU model string from ryzenadj
+        # check cpu family
         fam_lower = cpu_family.lower()
         apu_families = {
             "strix", "phoenix", "hawk", "rembrandt", "barcelo", "cezanne", 
@@ -706,7 +740,7 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
         if any(fam in fam_lower for fam in apu_families):
             return True
             
-        # 3. Check /proc/cpuinfo for mobile CPU suffixes or Ryzen AI processors
+        # check cpuinfo for mobile/ryzen ai
         try:
             with open("/proc/cpuinfo", "r") as f:
                 for line in f:
@@ -733,13 +767,9 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
 
 
 def _build_ryzenadj_args(settings: dict) -> list[str]:
-    """Build the command-line arguments for ryzenadj based on settings dict with CO support.
-
-    Curve Optimizer values are clamped to [-30, +30] before encoding to prevent
-    out-of-range values (e.g. from a corrupt settings file) reaching hardware.
-    """
+    """build ryzenadj args, clamp CO to [-30,30]"""
     args = []
-    # Automatically prepend --enable-oc if manual CPU overclocking is requested
+    # enable-oc for manual overclock
     enable_oc = False
     for param in settings:
         if param in ("oc-clk", "oc-volt"):
@@ -762,7 +792,7 @@ def _build_ryzenadj_args(settings: dict) -> list[str]:
             core_idx = int(param.split("-")[-1])
             val_int = max(-30, min(30, val_int))  # clamp to valid CO range
             if val_int < 0:
-                encoded = (core_idx << 20) | (0x10000 - abs(val_int))
+                encoded = (core_idx << 20) | (0x100000 - abs(val_int))
             else:
                 encoded = (core_idx << 20) | val_int
             args.append(f"--set-coper={encoded}")
@@ -873,6 +903,41 @@ def save_settings(settings: dict) -> None:
             json.dump(settings, f, indent=2)
     except Exception as e:
         log.error("Failed to save settings: %s", e)
+
+
+def remove_setting_from_startup(param: str) -> tuple[bool, str]:
+    """Remove a specific parameter from both user and system saved settings (for boot service)."""
+    try:
+        changed = False
+
+        # Remove from user config
+        user_settings = load_settings()
+        if param in user_settings:
+            del user_settings[param]
+            save_settings(user_settings)
+            changed = True
+
+        # Remove from system config if present
+        if os.path.exists(SYSTEM_CONFIG_FILE):
+            try:
+                system_settings = {}
+                with open(SYSTEM_CONFIG_FILE, "r") as f:
+                    system_settings = json.load(f)
+                if param in system_settings:
+                    del system_settings[param]
+                    with open(SYSTEM_CONFIG_FILE, "w") as f:
+                        json.dump(system_settings, f, indent=2)
+                    changed = True
+            except Exception as e:
+                log.warning("Could not update system settings for %s: %s", param, e)
+
+        if changed:
+            return True, f"Removed {param} from startup settings."
+        else:
+            return True, f"{param} was not saved to startup."
+    except Exception as e:
+        log.error("Failed to remove setting %s from startup: %s", param, e)
+        return False, str(e)
 
 
 def is_service_enabled() -> bool:

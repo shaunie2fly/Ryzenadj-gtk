@@ -1,6 +1,6 @@
 # Maintainer: Marley <warburtonmarley@proton.me>
 pkgname=ryzenadj-gtk
-pkgver=1.1.1
+pkgver=1.5.0
 pkgrel=1
 pkgdesc="A modern, polished GTK4/Libadwaita graphical wrapper for ryzenadj (AMD power management adjustment tool)."
 arch=('any')
@@ -20,9 +20,11 @@ package() {
   install -m644 src/*.py "$pkgdir/usr/share/ryzenadj-gtk/"
   chmod 755 "$pkgdir/usr/share/ryzenadj-gtk/app.py"
 
-  # Install Icon (SVG is scalable, so it goes to hicolor/scalable)
-  install -d "$pkgdir/usr/share/icons/hicolor/scalable/apps"
-  install -m644 "src/assets/ryzenadj-gtk.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg"
+  # Install Icon (PNG) - 256 and 512 for modern displays
+  for size in 256 512; do
+    install -d "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps"
+    install -m644 "src/assets/com.marley.ryzenadj-gtk.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/com.marley.ryzenadj-gtk.png"
+  done
 
   # Install Desktop file
   install -Dm644 "com.marley.ryzenadj-gtk.desktop" "$pkgdir/usr/share/applications/com.marley.ryzenadj-gtk.desktop"
