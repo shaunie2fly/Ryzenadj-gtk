@@ -6,6 +6,8 @@ I made it for myself because I was tired of typing the same commands over and ov
 
 Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 
+![Ryzenadj-gtk Demo](ryzenadj.gif)
+
 ## What it does
 
 - Dashboard showing current power, current, temps and some clock speeds
