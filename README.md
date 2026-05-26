@@ -73,6 +73,8 @@ Then launch "Ryzenadj-gtk" from your menu or just run `ryzenadj-gtk`.
 sudo ./uninstall.sh
 ```
 
+Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj)
+
 ## License
 
 GPL-3.0
