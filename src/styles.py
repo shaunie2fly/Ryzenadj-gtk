@@ -1,4 +1,4 @@
-"""css"""
+"""CSS styles for the app UI"""
 
 CSS = """
 /* Define theme colors and fallbacks */

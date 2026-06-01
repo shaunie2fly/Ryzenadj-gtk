@@ -16,18 +16,19 @@ rm -f  /usr/share/applications/com.marley.ryzenadj-gtk.desktop
 for size in 256 512; do
     rm -f "/usr/share/icons/hicolor/${size}x${size}/apps/com.marley.ryzenadj-gtk.png"
 done
-rm -f  /usr/share/icons/hicolor/scalable/apps/com.marley.ryzenadj-gtk.svg 2>/dev/null || true
 
-# Disable and remove systemd service
+# stop and remove the boot service if it was running
 echo "  -> Removing systemd service..."
 systemctl disable ryzenadj-gtk-apply.service 2>/dev/null || true
 rm -f /usr/lib/systemd/system/ryzenadj-gtk-apply.service
 systemctl daemon-reload
 
-# Remove system settings
+# delete the config folder (this removes their saved settings and profiles)
+echo "  -> Removing system settings directory (/etc/ryzenadj-gtk)..."
+echo "     WARNING: This will delete any saved boot-apply settings."
 rm -rf /etc/ryzenadj-gtk
 
-# Remove secure sudoers drop-in file (installed by install.sh or AUR package)
+# remove passwordless sudo access
 rm -f /etc/sudoers.d/ryzenadj-gtk
 echo "     Sudoers rules removed (if present)."
 

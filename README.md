@@ -1,6 +1,6 @@
 # Ryzenadj-gtk
 
-GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps and curve optimizer without living in the terminal.
+GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps, and curve optimizer without living in the terminal.
 
 I made it for myself because I was tired of typing the same commands over and over.
 
@@ -10,18 +10,18 @@ Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 
 ## What it does
 
-- Dashboard showing current power, current, temps and some clock speeds
-- Curve optimizer with all-core, iGPU and per-core sliders (-30 to +30)
+- Dashboard showing current power, current, temps, and clock speeds
+- Curve optimizer with all-core, iGPU, and per-core sliders (-30 to +30)
 - Power limits (STAPM, fast PPT, slow PPT, APU PPT)
 - Current limits (TDC and EDC for CPU and SoC)
-- Temperature limits and skin temp stuff
-- iGPU clock limits and forcing (with automatic AMDGPU sysfs overdrive fallback when ryzenadj limits aren't natively supported)
-- Some SoC clock and other lower level options
-- Save your own profiles and switch between them easily
+- Temperature limits and skin temp controls
+- iGPU clock limits (if ryzenadj can't change it, the app falls back to writing directly to the AMDGPU driver via sysfs)
+- SoC clock and low-level options
+- Save custom profiles and switch between them easily
 - Auto switch profiles when you plug or unplug the charger
-- Re-applies your settings after sleep (usually within a few seconds)
-- Keeps re-applying in the background every so often so the firmware doesn't override you
-- Shows a warning if Secure Boot or kernel lockdown is blocking things
+- Works after sleep (applies settings again automatically when the machine wakes up)
+- Persistence Guard: keeps applying settings in the background so the system firmware doesn't reset them behind your back
+- Warns you if Secure Boot or kernel lockdown is active (since that blocks ryzenadj from writing to hardware)
 - Enthusiast mode if you want to push past the normal limits (250W etc)
 
 ## Curve optimizer
@@ -32,17 +32,15 @@ The app clamps to the safe -30 to +30 range. It also asks before applying anythi
 
 ## iGPU Clock Controls & Sysfs Fallback
 
-For newer chips or ryzenadj builds where `--min-gfxclk` and `--max-gfxclk` aren't natively supported, the app has a built-in fallback that talks directly to the AMDGPU driver via sysfs (`pp_od_clk_voltage` / overdrive table).
+Some chips or RyzenAdj builds don't support maximum and minimum graphics clocks. If that's the case, the app will try writing directly to the AMDGPU driver under `/sys/class/drm` instead. 
 
-The installer sets up secure passwordless `tee` rules so it works seamlessly in the background.
-
-If you set custom minimum or maximum clock speeds and decide to remove them later, you'll be prompted to reboot to fully restore stock GPU firmware behavior.
+The installer sets up sudo rules for `tee` to handle this. If you change these values and want to fully reset them back to normal, you'll need to reboot your system so the GPU driver goes back to stock.
 
 ## Warnings
 
 `ryzenadj` needs root access to the hardware. The install script and AUR package drop a sudoers file so you don't get spammed with password prompts every second. It's pretty narrow (only ryzenadj and the service commands).
 
-If that file isn't there the app will just show a page telling you to reboot.
+If that file isn't there, the app will just show a page telling you to reboot or grant access.
 
 Be careful with this tool. Too much power or too aggressive undervolting can make the machine unstable or hotter than expected. The confirmation dialogs are there for a reason.
 
@@ -65,6 +63,8 @@ Or build from this repo:
 
 ```bash
 git clone https://github.com/marleylinux/Ryzenadj-gtk
+```
+```bash
 cd Ryzenadj-gtk
 makepkg -si
 ```
@@ -73,6 +73,8 @@ makepkg -si
 
 ```bash
 git clone https://github.com/marleylinux/Ryzenadj-gtk
+```
+```bash
 cd Ryzenadj-gtk
 sudo ./install.sh
 ```
