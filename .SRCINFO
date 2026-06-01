@@ -13,6 +13,6 @@ pkgbase = ryzenadj-gtk
 	depends = ryzenadj
 	optdepends = ryzen_smu-dkms-git: enhanced hardware monitoring and control
 	source = ryzenadj-gtk-1.7.0.tar.gz::https://github.com/marleylinux/Ryzenadj-gtk/archive/refs/tags/v1.7.0.tar.gz
-	sha256sums = aedfb993652fcca535cc970d84160d29f87c6237e85a1d00e9ac1a4156be5ee1
+	sha256sums = 091fa6a83adfa9259eb0752350e26231287741775506bd1809acb5f0942e9293
 
 pkgname = ryzenadj-gtk
