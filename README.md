@@ -80,6 +80,33 @@ sudo ./install.sh
 
 Then launch "Ryzenadj-gtk" from your menu or just run `ryzenadj-gtk`.
 
+## Troubleshooting
+
+### "Cannot get portal... Could not activate remote peer" / Startup lag
+
+If you see warnings like this in your terminal when launching the application:
+```
+(app.py:7341): Gdk-WARNING **: Cannot get portal org.freedesktop.portal.Settings version: GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer 'org.freedesktop.portal.Desktop': startup job failed
+```
+This is a common system configuration issue on systemd-based distributions (like Arch Linux) when using a custom window manager (such as i3, Sway, or Hyprland) that does not automatically notify systemd that the `graphical-session.target` has started. 
+
+To fix this for all GTK applications on your system:
+
+1. Copy the system portal service file to your user configuration directory:
+   ```bash
+   mkdir -p ~/.config/systemd/user/
+   cp /usr/lib/systemd/user/xdg-desktop-portal.service ~/.config/systemd/user/xdg-desktop-portal.service
+   ```
+2. Open `~/.config/systemd/user/xdg-desktop-portal.service` in your preferred text editor and remove the following line from the `[Unit]` section:
+   ```ini
+   Requisite=graphical-session.target
+   ```
+3. Reload systemd and restart the portal service:
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user restart xdg-desktop-portal.service
+   ```
+
 ## Uninstall
 
 ```bash
@@ -89,3 +116,4 @@ sudo ./uninstall.sh
 ## License
 
 GPL-3.0
+

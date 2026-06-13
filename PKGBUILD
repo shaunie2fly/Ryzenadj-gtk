@@ -1,7 +1,8 @@
 # Maintainer: Marley <warburtonmarley@proton.me>
 pkgname=ryzenadj-gtk
-pkgver=1.8.1
+pkgver=1.8.2
 pkgrel=1
+
 pkgdesc="A modern, polished GTK4/Libadwaita graphical wrapper for ryzenadj (AMD power management adjustment tool)."
 arch=('any')
 url="https://github.com/marleylinux/Ryzenadj-gtk"

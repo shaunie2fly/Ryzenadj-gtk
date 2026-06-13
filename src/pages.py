@@ -8,7 +8,8 @@ from gi.repository import Gtk, Adw, Gdk
 try:
     from main import APP_VER
 except ImportError:
-    APP_VER = "1.8.1"
+    APP_VER = "1.8.2"
+
 
 from widgets import (
     get_cpu_name,
