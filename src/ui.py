@@ -5,12 +5,7 @@ import ryzen
 from gi.repository import Gtk, Adw, Gio, GObject
 
 # Import widgets and pages to orchestrate the main window layout
-from widgets import (
-    get_cpu_name,
-    _fmt_limit,
-    _fmt,
-    _bar_class
-)
+from widgets import get_cpu_name
 
 
 from pages import (

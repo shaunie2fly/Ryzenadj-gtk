@@ -2,7 +2,7 @@ import logging
 import threading
 from gi.repository import GLib
 import ryzen
-import ui as ui_module
+from widgets import get_cpu_name, _fmt_limit, _fmt, _bar_class
 
 log = logging.getLogger(__name__)
 
@@ -195,7 +195,7 @@ class MonitorMixin:
 
             if hasattr(card, "_lim_lbl") and card._lim_lbl:
                 card._lim_lbl.remove_css_class("bottleneck")
-                limit_str = ui_module._fmt_limit(limit, card._unit)
+                limit_str = _fmt_limit(limit, card._unit)
                 if frac >= 0.95:
                     limit_str = f"⚠️ CAPPED ({limit_str.replace('Limit: ', '')})"
                     card._lim_lbl.add_css_class("bottleneck")
@@ -204,7 +204,7 @@ class MonitorMixin:
             bar = card._bar
             for cls in ("low", "medium", "high", "bottleneck"):
                 bar.remove_css_class(cls)
-            bar.add_css_class(ui_module._bar_class(frac))
+            bar.add_css_class(_bar_class(frac))
             if frac >= 0.95:
                 bar.add_css_class("bottleneck")
             bar.set_fraction(frac)
@@ -217,7 +217,7 @@ class MonitorMixin:
             vkey = meta["value_key"]
             raw = self.current_info.get(vkey)
             if raw is not None:
-                cur_text = ui_module._fmt(raw, 1, meta["display_unit"])
+                cur_text = _fmt(raw, 1, meta["display_unit"])
             else:
                 cur_text = "—"
             badge = getattr(row, "_cur_badge", None)
@@ -226,4 +226,4 @@ class MonitorMixin:
 
     def _update_status_label(self) -> None:
         if self.window_title:
-            self.window_title.set_subtitle(ui_module.get_cpu_name())
+            self.window_title.set_subtitle(get_cpu_name())

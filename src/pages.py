@@ -8,7 +8,7 @@ from gi.repository import Gtk, Adw, Gdk
 try:
     from main import APP_VER
 except ImportError:
-    APP_VER = "1.8.2"
+    APP_VER = "1.8.3"
 
 
 from widgets import (
@@ -673,6 +673,9 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                     keys_to_remove_applied = [k for k in app.applied_settings if k not in p_settings]
                     for k in keys_to_remove_applied:
                         del app.applied_settings[k]
+
+                    if keys_to_remove:
+                        ryzen.remove_settings_from_startup(keys_to_remove)
 
                     # 2. Update/apply profile settings
                     for param, val in p_settings.items():

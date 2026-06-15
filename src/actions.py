@@ -294,7 +294,7 @@ class ActionsMixin:
                     desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
                     continue
 
-                row._bottom_box.set_sensitive(False)
+                row.set_sensitive(False)
                 desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: reboot required to clear GFX conflicts)</span></span>")
         else:
             has_min_max = ("min-gfxclk" in self.pending_settings) or ("max-gfxclk" in self.pending_settings)

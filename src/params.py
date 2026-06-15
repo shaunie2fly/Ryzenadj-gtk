@@ -454,13 +454,7 @@ def _is_zen3_or_newer() -> bool:
         pass
     return True
 
-
-def is_sysfs_gfx_clk_available() -> bool:
-    """Check if AMD GPU overdrive is available in sysfs"""
-    for i in range(4):
-        if os.path.exists(f"/sys/class/drm/card{i}/device/pp_od_clk_voltage"):
-            return True
-    return False
+from system import is_sysfs_gfx_clk_available
 
 
 def is_parameter_supported(param: str, cpu_family: str, supported_params: set[str]) -> bool:
