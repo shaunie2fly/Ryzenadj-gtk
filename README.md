@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/assets/com.marley.ryzenadj-gtk.png" width="128" height="128" alt="Ryzenadj-gtk logo" />
+</p>
+
 # Ryzenadj-gtk
 
 GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps, and curve optimizer without living in the terminal.
@@ -5,7 +9,7 @@ GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps, 
 
 Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 
-![Ryzenadj-gtk Demo](ryzenadj.gif)
+![Ryzenadj-gtk Demo](ryzen.gif)
 
 ## What it does
 
@@ -116,4 +120,11 @@ sudo ./uninstall.sh
 ## License
 
 GPL-3.0
+
+---
+
+### Check out my other apps:
+
+| [<img src="https://raw.githubusercontent.com/marleylinux/cpupower-gtk/main/src/assets/com.marley.cpupower-gtk.png" width="48" height="48" /><br/>cpupower-gtk](https://github.com/marleylinux/cpupower-gtk) | [<img src="https://raw.githubusercontent.com/marleylinux/Ryzenadj-gtk/main/src/assets/com.marley.ryzenadj-gtk.png" width="48" height="48" /><br/>Ryzenadj-gtk](https://github.com/marleylinux/Ryzenadj-gtk) | [<img src="https://raw.githubusercontent.com/marleylinux/FastFlowLM-gtk/main/src/assets/com.marley.FastFlowLM-gtk.png" width="48" height="48" /><br/>FastFlowLM-gtk](https://github.com/marleylinux/FastFlowLM-gtk) | [<img src="https://raw.githubusercontent.com/marleylinux/fetch-gtk/main/src/assets/com.marley.fetch-gtk.png" width="48" height="48" /><br/>fetch-gtk](https://github.com/marleylinux/fetch-gtk) |
+|---|---|---|---|
 
