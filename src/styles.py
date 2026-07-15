@@ -52,6 +52,96 @@ window.ryzenadj-win {
     border: 1px solid alpha(@accent_bg_color, 0.15);
 }
 
+/* ─── System Health Summary ─────────────────────────────── */
+.health-summary {
+    background-color: alpha(@window_fg_color, 0.04);
+    background-image: linear-gradient(145deg, alpha(@window_fg_color, 0.03), transparent);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    border-radius: 20px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+}
+
+.health-status-row {
+    margin-bottom: 4px;
+}
+
+.health-status-pill {
+    font-size: 13px;
+    font-weight: 900;
+    padding: 6px 16px;
+    border-radius: 14px;
+    letter-spacing: 0.3px;
+}
+
+.health-status-pill.optimal {
+    background-color: alpha(@semantic_green, 0.18);
+    color: @semantic_green;
+    border: 1px solid alpha(@semantic_green, 0.4);
+}
+
+.health-status-pill.power-limited {
+    background-color: alpha(@semantic_yellow, 0.18);
+    color: @semantic_yellow;
+    border: 1px solid alpha(@semantic_yellow, 0.4);
+}
+
+.health-status-pill.current-limited {
+    background-color: alpha(#ff9f0a, 0.18);
+    color: #ff9f0a;
+    border: 1px solid alpha(#ff9f0a, 0.4);
+}
+
+.health-status-pill.thermal-limited {
+    background-color: alpha(@semantic_red, 0.18);
+    color: @semantic_red;
+    border: 1px solid alpha(@semantic_red, 0.4);
+}
+
+.health-status-pill.idle {
+    background-color: alpha(@window_fg_color, 0.08);
+    color: alpha(@window_fg_color, 0.65);
+    border: 1px solid alpha(@window_fg_color, 0.15);
+}
+
+.health-description {
+    color: alpha(@window_fg_color, 0.65);
+    font-size: 13px;
+    margin-top: 10px;
+    line-height: 1.4;
+}
+
+.health-stats-grid {
+    margin-top: 16px;
+}
+
+.health-stat {
+    background-color: alpha(@window_fg_color, 0.04);
+    border: 1px solid alpha(@window_fg_color, 0.06);
+    border-radius: 14px;
+    padding: 12px 16px;
+}
+
+.health-stat-label {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: alpha(@window_fg_color, 0.6);
+}
+
+.health-stat-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: @accent_bg_color;
+    font-variant-numeric: tabular-nums;
+}
+
+.health-stat-sub {
+    font-size: 11px;
+    color: alpha(@window_fg_color, 0.6);
+}
+
 .hero-icon {
     color: @accent_bg_color;
     -gtk-icon-shadow: 0 0 20px alpha(@accent_bg_color, 0.5);
@@ -68,7 +158,7 @@ window.ryzenadj-win {
 .hero-subtitle {
     font-size: 13px;
     font-weight: 700;
-    color: alpha(@window_fg_color, 0.45);
+    color: alpha(@window_fg_color, 0.65);
 }
 
 .hero-cpu-badge {
@@ -151,7 +241,7 @@ window.ryzenadj-win {
     font-weight: 800;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: alpha(@window_fg_color, 0.45);
+    color: alpha(@window_fg_color, 0.65);
 }
 
 .monitor-limit-badge {
@@ -181,7 +271,7 @@ window.ryzenadj-win {
 .monitor-unit-label {
     font-size: 12px;
     font-weight: bold;
-    color: alpha(@window_fg_color, 0.4);
+    color: alpha(@window_fg_color, 0.6);
     margin-bottom: 3px;
 }
 
@@ -266,6 +356,12 @@ progressbar.usage-bar.bottleneck progress {
     font-variant-numeric: tabular-nums;
 }
 
+/* Target badge is wrapped in a MenuButton — show it's clickable */
+.target-btn:hover .target-badge {
+    background-color: alpha(@accent_bg_color, 0.2);
+    border-color: alpha(@accent_bg_color, 0.5);
+}
+
 .cpu-badge {
     background-color: @cpu_badge_bg;
     color: @cpu_badge_fg;
@@ -284,6 +380,81 @@ progressbar.usage-bar.bottleneck progress {
     padding: 4px 10px;
     font-size: 11px;
     font-weight: 900;
+}
+
+/* ─── C5 safety guidance elements ─────────────────────────────── */
+/* Risk pill: inherent (hardware-independent) risk tag. NOT a safe-zone
+   indicator — actual safety depends on cooling, VRM, silicon. */
+.risk-pill {
+    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid;
+}
+.risk-pill-label {
+    font-size: 10px;
+    font-weight: 700;
+}
+.risk-low {
+    background-color: alpha(#26a269, 0.12);
+    color: alpha(#26a269, 0.95);
+    border-color: alpha(#26a269, 0.35);
+}
+.risk-moderate {
+    background-color: alpha(#e5a50a, 0.14);
+    color: alpha(#e5a50a, 0.95);
+    border-color: alpha(#e5a50a, 0.4);
+}
+.risk-high {
+    background-color: alpha(#e01b24, 0.14);
+    color: alpha(#e01b24, 0.95);
+    border-color: alpha(#e01b24, 0.45);
+}
+
+/* Plain-language description (always visible, muted) */
+.slider-row-plain-desc {
+    color: alpha(@window_fg_color, 0.75);
+    margin-top: 2px;
+}
+
+/* Watch-for hint (smaller, more muted) */
+.slider-row-watch-for {
+    color: alpha(@window_fg_color, 0.6);
+    margin-top: 1px;
+    font-style: italic;
+}
+
+/* Deviation badge: appears on significant slider changes. Never claims a
+   value is safe/unsafe — only flags the magnitude of the change. */
+.deviation-badge {
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid;
+}
+.deviation-moderate {
+    background-color: alpha(#e5a50a, 0.16);
+    color: alpha(#e5a50a, 0.95);
+    border-color: alpha(#e5a50a, 0.4);
+}
+.deviation-major {
+    background-color: alpha(#e01b24, 0.16);
+    color: alpha(#e01b24, 0.95);
+    border-color: alpha(#e01b24, 0.45);
+}
+
+/* Category safety banner (top of each tuning sub-tab) */
+.category-safety-banner {
+    background-color: alpha(@accent_bg_color, 0.08);
+    border: 1px solid alpha(@accent_bg_color, 0.25);
+    border-radius: 10px;
+    padding: 6px 4px;
+    margin-bottom: 8px;
+}
+.category-safety-banner-label {
+    color: alpha(@window_fg_color, 0.85);
 }
 
 /* ─── Preset buttons (Floating Action Feel) ───────────────── */
@@ -322,21 +493,35 @@ progressbar.usage-bar.bottleneck progress {
 
 /* ─── Apply button (High Impact) ──────────────────────────── */
 .apply-btn {
-    background-color: @accent_bg_color;
-    color: @accent_fg_color;
+    background-color: alpha(@window_fg_color, 0.08);
+    color: alpha(@window_fg_color, 0.65);
     border-radius: 28px;
     padding: 10px 40px;
     font-weight: 900;
     font-size: 15px;
     min-height: 48px;
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid alpha(@window_fg_color, 0.1);
+}
+
+/* When there are unsaved changes, make the button prominent */
+.apply-btn.pending {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+    border-color: transparent;
     box-shadow: 0 6px 16px alpha(@accent_bg_color, 0.35);
 }
 
-.apply-btn:hover {
+.apply-btn.pending:hover {
     background-color: shade(@accent_bg_color, 1.25);
     transform: translateY(-4px);
     box-shadow: 0 12px 28px alpha(@accent_bg_color, 0.5);
+}
+
+/* Idle (no pending changes) hover — subtle */
+.apply-btn:hover {
+    background-color: alpha(@window_fg_color, 0.12);
+    color: @window_fg_color;
 }
 
 /* ─── Navigation & Sidebar (Ptyxis Style) ────────────────── */
@@ -404,8 +589,8 @@ progressbar.usage-bar.bottleneck progress {
 
 /* ─── Adjustment Buttons (+/- 0.5) ───────────────────────── */
 .adj-btn {
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 36px;
+    min-height: 36px;
     padding: 0;
     transition: all 0.2s ease;
     opacity: 0.7;
@@ -421,12 +606,12 @@ progressbar.usage-bar.bottleneck progress {
     font-size: 10px;
     font-weight: 900;
     letter-spacing: 0.2px;
-    min-width: 34px;
-    min-height: 26px;
+    min-width: 36px;
+    min-height: 36px;
     padding: 0 6px;
-    border-radius: 13px;
+    border-radius: 14px;
     background-color: alpha(@window_fg_color, 0.05);
-    color: alpha(@window_fg_color, 0.45);
+    color: alpha(@window_fg_color, 0.7);
     border: 1px solid alpha(@window_fg_color, 0.08);
     transition: all 0.2s ease;
 }
@@ -440,5 +625,59 @@ progressbar.usage-bar.bottleneck progress {
 
 .step-btn:active {
     background-color: alpha(@accent_bg_color, 0.2);
+}
+
+/* ─── L2: Keyboard focus indicators (accessibility) ──────────── */
+/* Use :focus-visible so mouse users don't see focus rings, only keyboard
+   users do. Uses @accent_bg_color for visibility on dark backgrounds. */
+
+/* Standard buttons — 2px outline with 2px offset */
+button:focus-visible,
+button.text-button:focus-visible,
+button.image-button:focus-visible,
+button.circular:focus-visible {
+    outline: 2px solid @accent_bg_color;
+    outline-offset: 2px;
+}
+
+/* Sliders — focus the trough so the user can see which slider is active */
+scale:focus-visible trough {
+    outline: 2px solid @accent_bg_color;
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+
+/* Sidebar navigation rows — keyboard focus distinct from mouse :selected */
+.navigation-sidebar row:focus-visible {
+    outline: 2px solid @accent_bg_color;
+    outline-offset: -2px;
+}
+
+/* Step and adjustment buttons — 3px outline since they're small */
+.step-btn:focus-visible,
+.adj-btn:focus-visible {
+    outline: 3px solid @accent_bg_color;
+    outline-offset: 1px;
+}
+
+/* SpinButton in the target-value popover */
+spinbutton:focus-visible {
+    outline: 2px solid @accent_bg_color;
+    outline-offset: 1px;
+}
+
+/* L3: Ensure icon buttons (revert, remove) meet touch target minimums */
+button.flat.image-button {
+    min-width: 32px;
+    min-height: 32px;
+}
+
+/* ─── Bonus: Reduced motion (vestibular accessibility) ────── */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms;
+        animation-iteration-count: 1;
+        transition-duration: 0.01ms;
+    }
 }
 """

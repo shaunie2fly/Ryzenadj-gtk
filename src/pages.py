@@ -1,10 +1,13 @@
 """Page layouts, dashboard, and profiles manager views"""
+
+import logging
 import os
 import subprocess
-import logging
+
+from gi.repository import Adw, Gdk, Gtk
+
 import ryzen
 
-from gi.repository import Gtk, Adw, Gdk
 try:
     from main import APP_VER
 except ImportError:
@@ -12,11 +15,11 @@ except ImportError:
 
 
 from widgets import (
-    get_cpu_name,
-    _fmt,
+    _build_section_header,
     _build_slider_row,
+    _fmt,
     _make_card_grid,
-    _build_section_header
+    get_cpu_name,
 )
 
 log = logging.getLogger(__name__)
@@ -83,6 +86,7 @@ def build_auth_required_page(app) -> Adw.ToolbarView:
         if not current_user:
             try:
                 import pwd
+
                 current_user = pwd.getpwuid(os.getuid()).pw_name
             except Exception:
                 current_user = ""
@@ -119,7 +123,9 @@ fi
                 app._retry_auth()
             else:
                 if app and hasattr(app, "_show_toast"):
-                    app._show_toast(f"Authorization failed (Code {res.returncode})", is_error=True)
+                    app._show_toast(
+                        f"Authorization failed (Code {res.returncode})", is_error=True
+                    )
         except Exception as e:
             if app and hasattr(app, "_show_toast"):
                 app._show_toast(f"Error launching pkexec: {e}", is_error=True)
@@ -144,6 +150,87 @@ fi
 
     toolbar.set_content(status)
     return toolbar
+
+
+def _build_health_summary(app) -> Gtk.Box:
+    """Build the System Health summary card for the dashboard.
+
+    Shows a computed status verdict (Optimal / Power Limited / etc.),
+    a plain-language explanation, and three headline stats
+    (temperature, power, headroom). All widgets are stored on `app`
+    so `_update_health_summary()` can update them on each refresh.
+    """
+    health_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    health_box.add_css_class("health-summary")
+
+    # Status pill row
+    status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    status_row.set_halign(Gtk.Align.START)
+
+    status_pill = Gtk.Label(label="⚫ Awaiting data")
+    status_pill.add_css_class("health-status-pill")
+    status_pill.add_css_class("idle")
+    status_row.append(status_pill)
+    health_box.append(status_row)
+
+    # Description sentence
+    description = Gtk.Label(
+        label="Waiting for telemetry data from hardware...",
+        xalign=0,
+    )
+    description.add_css_class("health-description")
+    description.set_halign(Gtk.Align.START)
+    description.set_wrap(True)
+    health_box.append(description)
+
+    # Three headline stats
+    stats_grid = Gtk.Grid()
+    stats_grid.add_css_class("health-stats-grid")
+    stats_grid.set_column_homogeneous(True)
+    stats_grid.set_column_spacing(12)
+
+    def _make_stat(label_text: str) -> tuple[Gtk.Box, Gtk.Label, Gtk.Label]:
+        """Build one stat box; returns (box, value_label, sub_label)."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.add_css_class("health-stat")
+
+        lbl = Gtk.Label(label=label_text)
+        lbl.add_css_class("health-stat-label")
+        lbl.set_halign(Gtk.Align.START)
+        box.append(lbl)
+
+        val = Gtk.Label(label="—")
+        val.add_css_class("health-stat-value")
+        val.set_halign(Gtk.Align.START)
+        box.append(val)
+
+        sub = Gtk.Label(label="")
+        sub.add_css_class("health-stat-sub")
+        sub.set_halign(Gtk.Align.START)
+        box.append(sub)
+
+        return box, val, sub
+
+    temp_box, temp_val, temp_sub = _make_stat("Temperature")
+    power_box, power_val, power_sub = _make_stat("Power Usage")
+    head_box, head_val, head_sub = _make_stat("Headroom")
+
+    stats_grid.attach(temp_box, 0, 0, 1, 1)
+    stats_grid.attach(power_box, 1, 0, 1, 1)
+    stats_grid.attach(head_box, 2, 0, 1, 1)
+    health_box.append(stats_grid)
+
+    # Store references for _update_health_summary
+    app.health_status_pill = status_pill
+    app.health_description = description
+    app.health_temp_value = temp_val
+    app.health_temp_sub = temp_sub
+    app.health_power_value = power_val
+    app.health_power_sub = power_sub
+    app.health_headroom_value = head_val
+    app.health_headroom_sub = head_sub
+
+    return health_box
 
 
 def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
@@ -213,9 +300,43 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     hero_box.append(right_spacer)
     main_box.append(hero_box)
 
+    # First-run welcome banner (M2: onboarding guidance)
+    if app.ui_settings.get("first_run", True):
+        welcome_card = Adw.ActionRow()
+        welcome_card.set_title("👋 Welcome to Ryzenadj-gtk")
+        welcome_card.set_subtitle(
+            "This tool adjusts AMD Ryzen power, current, thermal, and voltage settings.\n"
+            "\n"
+            "• Start on the Undervolt page (Curve Optimizer) for the safest gains — negative offsets reduce heat and power draw.\n"
+            "• Adjust Power Limits to change how much wattage your CPU can draw.\n"
+            "• Use Profiles to save and switch between configurations.\n"
+            "• The System Health summary above shows if anything is being throttled.\n"
+            "\n"
+            "Always test for stability after tuning — instability may appear hours later under load."
+        )
+        welcome_card.add_css_class("diagnostic-warning-row")
+        welcome_card.set_activatable(False)
+
+        btn_dismiss = Gtk.Button(label="Got it")
+        btn_dismiss.add_css_class("suggested-action")
+        btn_dismiss.set_valign(Gtk.Align.CENTER)
+
+        def on_dismiss(_btn):
+            app.ui_settings["first_run"] = False
+            app._save_ui_settings()
+            grp_welcome.set_visible(False)
+
+        btn_dismiss.connect("clicked", on_dismiss)
+        welcome_card.add_suffix(btn_dismiss)
+
+        grp_welcome = Adw.PreferencesGroup()
+        grp_welcome.add(welcome_card)
+        grp_welcome.set_margin_top(16)
+        main_box.append(grp_welcome)
+
     diagnostic_card = Adw.ActionRow()
-    diagnostic_card.set_title("System Memory Lockdown Detected")
-    diagnostic_card.set_subtitle("Secure Boot or Kernel Lockdown is active, which blocks ryzenadj from writing parameters to SMU.")
+    diagnostic_card.set_title("Monitoring Unavailable")
+    diagnostic_card.set_subtitle("Telemetry could not be read from hardware.")
     diagnostic_card.add_css_class("diagnostic-warning-row")
     diagnostic_card.set_visible(False)
 
@@ -226,17 +347,23 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     grp_diag.set_margin_top(16)
     main_box.append(grp_diag)
 
+    # System Health Summary — at-a-glance status verdict for average users
+    main_box.append(_build_health_summary(app))
+
     main_box.append(_build_section_header("Power Envelope", "battery-symbolic"))
 
     grp_power = Adw.PreferencesGroup()
     grp_power.add_css_class("dashboard-group")
 
-    power_grid = _make_card_grid(app, [
-        ("STAPM VALUE",   "STAPM LIMIT",    "STAPM",     "W", "battery-symbolic"),
-        ("PPT VALUE FAST","PPT LIMIT FAST", "PPT Fast",  "W", "battery-symbolic"),
-        ("PPT VALUE SLOW","PPT LIMIT SLOW", "PPT Slow",  "W", "battery-symbolic"),
-        ("PPT VALUE APU", "PPT LIMIT APU",  "APU PPT",   "W", "battery-symbolic"),
-    ])
+    power_grid = _make_card_grid(
+        app,
+        [
+            ("STAPM VALUE", "STAPM LIMIT", "STAPM", "W", "battery-symbolic"),
+            ("PPT VALUE FAST", "PPT LIMIT FAST", "PPT Fast", "W", "battery-symbolic"),
+            ("PPT VALUE SLOW", "PPT LIMIT SLOW", "PPT Slow", "W", "battery-symbolic"),
+            ("PPT VALUE APU", "PPT LIMIT APU", "APU PPT", "W", "battery-symbolic"),
+        ],
+    )
     grp_power.add(power_grid)
     main_box.append(grp_power)
 
@@ -245,25 +372,51 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     grp_current = Adw.PreferencesGroup()
     grp_current.add_css_class("dashboard-group")
 
-    current_grid = _make_card_grid(app, [
-        ("TDC VALUE VDD", "TDC LIMIT VDD", "TDC VDD", "A", "thunderbolt-symbolic"),
-        ("TDC VALUE SOC", "TDC LIMIT SOC", "TDC SoC", "A", "thunderbolt-symbolic"),
-        ("EDC VALUE VDD", "EDC LIMIT VDD", "EDC VDD", "A", "thunderbolt-symbolic"),
-        ("EDC VALUE SOC", "EDC LIMIT SOC", "EDC SoC", "A", "thunderbolt-symbolic"),
-    ])
+    current_grid = _make_card_grid(
+        app,
+        [
+            ("TDC VALUE VDD", "TDC LIMIT VDD", "TDC VDD", "A", "thunderbolt-symbolic"),
+            ("TDC VALUE SOC", "TDC LIMIT SOC", "TDC SoC", "A", "thunderbolt-symbolic"),
+            ("EDC VALUE VDD", "EDC LIMIT VDD", "EDC VDD", "A", "thunderbolt-symbolic"),
+            ("EDC VALUE SOC", "EDC LIMIT SOC", "EDC SoC", "A", "thunderbolt-symbolic"),
+        ],
+    )
     grp_current.add(current_grid)
     main_box.append(grp_current)
 
-    main_box.append(_build_section_header("Thermal Status", "sensors-temperature-symbolic"))
+    main_box.append(
+        _build_section_header("Thermal Status", "sensors-temperature-symbolic")
+    )
 
     grp_thermal = Adw.PreferencesGroup()
     grp_thermal.add_css_class("dashboard-group")
 
-    thermal_flow = _make_card_grid(app, [
-        ("THM VALUE CORE", "THM LIMIT CORE", "CPU Die",       "°C", "sensors-temperature-symbolic"),
-        ("STT VALUE APU",  "STT LIMIT APU",  "APU Skin",      "°C", "sensors-temperature-symbolic"),
-        ("STT VALUE dGPU", "STT LIMIT dGPU", "dGPU Skin",     "°C", "sensors-temperature-symbolic"),
-    ])
+    thermal_flow = _make_card_grid(
+        app,
+        [
+            (
+                "THM VALUE CORE",
+                "THM LIMIT CORE",
+                "CPU Die",
+                "°C",
+                "sensors-temperature-symbolic",
+            ),
+            (
+                "STT VALUE APU",
+                "STT LIMIT APU",
+                "APU Skin",
+                "°C",
+                "sensors-temperature-symbolic",
+            ),
+            (
+                "STT VALUE dGPU",
+                "STT LIMIT dGPU",
+                "dGPU Skin",
+                "°C",
+                "sensors-temperature-symbolic",
+            ),
+        ],
+    )
     grp_thermal.add(thermal_flow)
     main_box.append(grp_thermal)
 
@@ -292,11 +445,15 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
     main_box.append(_build_section_header("Power Automation", "battery-symbolic"))
 
     grp_automation = Adw.PreferencesGroup()
-    grp_automation.set_description("Automatically swap profiles based on power supply charging state")
+    grp_automation.set_description(
+        "Automatically swap profiles based on power supply charging state"
+    )
 
     switch_auto = Adw.SwitchRow()
     switch_auto.set_title("Auto-switch profiles on power change")
-    switch_auto.set_subtitle("Automatically switch profiles when AC charger is plugged in or disconnected")
+    switch_auto.set_subtitle(
+        "Automatically switch profiles when AC charger is plugged in or disconnected"
+    )
     switch_auto.set_icon_name("media-playlist-shuffle-symbolic")
     switch_auto.set_active(app.ui_settings.get("auto_switch", False))
     grp_automation.add(switch_auto)
@@ -317,9 +474,13 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
 
     def update_automation_dropdowns():
         profiles = list(sorted(ryzen.load_profiles().keys()))
-        options = ["Stock (No Profile)", "⚡ Power Saving Preset", "🚀 Max Performance Preset"] + profiles
+        options = [
+            "Stock (No Profile)",
+            "⚡ Power Saving Preset",
+            "🚀 Max Performance Preset",
+        ] + profiles
         option_keys = ["", "__power_saving__", "__max_performance__"] + profiles
-        
+
         saved_ac = app.ui_settings.get("ac_profile", "")
         saved_bat = app.ui_settings.get("battery_profile", "")
 
@@ -328,16 +489,16 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
 
         model_ac = Gtk.StringList.new(options)
         model_bat = Gtk.StringList.new(options)
-        
+
         ac_row.set_model(model_ac)
         bat_row.set_model(model_bat)
-        
+
         try:
             ac_idx = option_keys.index(saved_ac)
             ac_row.set_selected(ac_idx)
         except ValueError:
             ac_row.set_selected(0)
-            
+
         try:
             bat_idx = option_keys.index(saved_bat)
             bat_row.set_selected(bat_idx)
@@ -385,14 +546,20 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
     bat_row.set_sensitive(app.ui_settings.get("auto_switch", False))
 
     # Persistence Guard
-    main_box.append(_build_section_header("Persistence Guard", "system-lock-screen-symbolic"))
+    main_box.append(
+        _build_section_header("Persistence Guard", "system-lock-screen-symbolic")
+    )
 
     grp_persistence = Adw.PreferencesGroup()
-    grp_persistence.set_description("Periodically verify and re-apply settings to counter thermal or system power overrides")
+    grp_persistence.set_description(
+        "Periodically verify and re-apply settings to counter thermal or system power overrides"
+    )
 
     switch_persist = Adw.SwitchRow()
     switch_persist.set_title("Enable Persistence Guard")
-    switch_persist.set_subtitle("⚠️ Re-applies active registers periodically. Lower verification intervals may cause system overhead or responsiveness impact depending on your configuration.")
+    switch_persist.set_subtitle(
+        "⚠️ Re-applies active registers periodically. Lower verification intervals may cause system overhead or responsiveness impact depending on your configuration."
+    )
     switch_persist.set_icon_name("security-high-symbolic")
     switch_persist.set_active(app.ui_settings.get("persistence_enabled", False))
     grp_persistence.add(switch_persist)
@@ -401,18 +568,18 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
     persist_interval_row.set_title("Verification Interval")
     persist_interval_row.set_subtitle("Time elapsed between checks and re-applications")
     persist_interval_row.set_icon_name("alarm-symbolic")
-    
+
     interval_options = [
         "5 seconds (High Overhead)",
         "10 seconds (Medium Overhead)",
         "30 seconds (Recommended)",
-        "60 seconds (Lightweight)"
+        "60 seconds (Lightweight)",
     ]
     interval_values = [5, 10, 30, 60]
-    
+
     model_persist = Gtk.StringList.new(interval_options)
     persist_interval_row.set_model(model_persist)
-    
+
     saved_interval = app.ui_settings.get("persistence_interval", 30)
     try:
         selected_idx = interval_values.index(saved_interval)
@@ -439,31 +606,39 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
 
     switch_persist.connect("notify::active", on_persistence_toggled)
     persist_interval_row.connect("notify::selected", on_persistence_interval_selected)
-    
-    persist_interval_row.set_sensitive(app.ui_settings.get("persistence_enabled", False))
+
+    persist_interval_row.set_sensitive(
+        app.ui_settings.get("persistence_enabled", False)
+    )
 
     # System and Tuning
-    main_box.append(_build_section_header("System and Tuning", "preferences-system-symbolic"))
+    main_box.append(
+        _build_section_header("System and Tuning", "preferences-system-symbolic")
+    )
 
     grp_service = Adw.PreferencesGroup()
     grp_service.set_description("Manage boot persistence and extreme tuning bounds")
 
     switch_row = Adw.SwitchRow()
     switch_row.set_title("Apply settings on startup")
-    switch_row.set_subtitle("Automatically write saved limits to Ryzen hardware on system boot via systemd service")
+    switch_row.set_subtitle(
+        "Automatically write saved limits to Ryzen hardware on system boot via systemd service"
+    )
     switch_row.set_icon_name("system-run-symbolic")
     switch_row.set_active(ryzen.is_service_enabled())
-    
+
     app.switch_startup = switch_row
     switch_row.connect("notify::active", app.on_startup_switch_toggled)
     grp_service.add(switch_row)
 
     switch_enthusiast = Adw.SwitchRow()
     switch_enthusiast.set_title("Enthusiast Mode (Extreme Tuning)")
-    switch_enthusiast.set_subtitle("Extend power limits up to 250W (250,000 mW) and currents up to 500A (Ensure high-wattage PSU and adequate cooling!)")
+    switch_enthusiast.set_subtitle(
+        "Extend power limits up to 250W (250,000 mW) and currents up to 500A (Ensure high-wattage PSU and adequate cooling!)"
+    )
     switch_enthusiast.set_icon_name("dialog-warning-symbolic")
     switch_enthusiast.set_active(app.enthusiast_mode)
-    
+
     app.switch_enthusiast = switch_enthusiast
     switch_enthusiast.connect("notify::active", app.on_enthusiast_toggled)
     grp_service.add(switch_enthusiast)
@@ -471,61 +646,150 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
 
     # About Section
     main_box.append(_build_section_header("About", "help-about-symbolic"))
-    
+
     group_about = Adw.PreferencesGroup()
     group_about.set_title("Application Details")
-    
+
     row_version = Adw.ActionRow()
     row_version.set_title("Version")
     row_version.set_subtitle(APP_VER)
     group_about.add(row_version)
-    
+
     row_author = Adw.ActionRow()
     row_author.set_title("Developer")
     row_author.set_subtitle("Marley (marleylinux)")
     group_about.add(row_author)
-    
+
     row_repo = Adw.ActionRow()
     row_repo.set_title("Repository")
     row_repo.set_subtitle("https://github.com/marleylinux/Ryzenadj-gtk")
-    
+
     btn_link = Gtk.Button(icon_name="document-open-symbolic")
     btn_link.set_tooltip_text("Open GitHub Repo")
     btn_link.set_valign(Gtk.Align.CENTER)
-    btn_link.connect("clicked", lambda b: Gtk.show_uri(app.win, "https://github.com/marleylinux/Ryzenadj-gtk", Gdk.CURRENT_TIME))
+    btn_link.connect(
+        "clicked",
+        lambda b: Gtk.show_uri(
+            app.win, "https://github.com/marleylinux/Ryzenadj-gtk", Gdk.CURRENT_TIME
+        ),
+    )
     row_repo.add_suffix(btn_link)
     group_about.add(row_repo)
     main_box.append(group_about)
 
     # Factory Reset
     btn_reset = Gtk.Button()
-    btn_reset.set_tooltip_text("Wipe all settings, disable startup service, and prepare for reboot")
+    btn_reset.set_tooltip_text(
+        "Wipe all settings, disable startup service, and prepare for reboot"
+    )
     btn_reset.add_css_class("destructive-action")
     btn_reset.add_css_class("pill")
     btn_reset.set_margin_top(24)
     btn_reset.set_margin_bottom(16)
     btn_reset.set_halign(Gtk.Align.CENTER)
-    
+
     btn_reset_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     btn_reset_icon = Gtk.Image.new_from_icon_name("edit-clear-all-symbolic")
     btn_reset_label = Gtk.Label(label="Factory Reset")
     btn_reset_content.append(btn_reset_icon)
     btn_reset_content.append(btn_reset_label)
     btn_reset.set_child(btn_reset_content)
-    
+
     btn_reset.connect("clicked", app.on_factory_reset_clicked)
     main_box.append(btn_reset)
 
     return scrolled
 
 
-def _build_slider_page(app, title: str, icon: str, name: str, groups: list) -> Gtk.ScrolledWindow:
+# ─────────────────────────────────────────────────────────────────────────────
+# C5: category-level safety banners (one-time guidance per tuning sub-tab)
+# ─────────────────────────────────────────────────────────────────────────────
+# Each banner is hardware-agnostic guidance about what the category controls
+# and what to watch for. Complements per-row plain_desc without repeating it.
+# Dismissible per-category, persisted in ui_settings["category_banners_dismissed"].
+_SAFETY_BANNERS = {
+    "power": (
+        "Power limits control how much power the CPU can draw, which directly "
+        "affects heat and battery life. Raising them allows faster sustained "
+        "performance but generates more heat — watch your temperatures under load. "
+        "Lowering them extends battery life but reduces performance."
+    ),
+    "clocks": (
+        "Clock limits cap the maximum frequencies the CPU, GPU, and interconnects "
+        "can reach. Raising them rarely helps unless you've also raised power/current "
+        "limits, and can cause instability. Test thoroughly after any change."
+    ),
+    "current": (
+        "Current limits cap the electrical current the voltage regulators can "
+        "deliver. Raising them allows more power delivery but stresses the VRM "
+        "hardware — most laptops have VRM protection that will throttle before "
+        "damage occurs, but sustained high currents reduce hardware lifespan."
+    ),
+    "thermal": (
+        "Thermal limits set the temperature ceilings at which the CPU slows itself "
+        "down to cool. Raising them lets the CPU run hotter for longer (more "
+        "performance, shorter lifespan). Lowering them keeps the system cooler "
+        "but reduces performance. Skin temperature limits protect you from a "
+        "hot chassis, not the hardware."
+    ),
+    "undervolt": (
+        "Curve Optimizer applies a voltage offset to the CPU or GPU at all "
+        "frequencies. Negative offsets (undervolting) reduce heat and power draw "
+        "but can cause instability — crashes often appear hours later under specific "
+        "workloads, not immediately. Positive offsets are rarely useful. Test "
+        "thoroughly after any change."
+    ),
+}
+
+
+def _build_category_safety_banner(app, category: str, text: str) -> Gtk.Box:
+    """Build a dismissible info banner shown at the top of a tuning sub-tab."""
+    banner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    banner.add_css_class("category-safety-banner")
+    banner.set_margin_start(4)
+    banner.set_margin_end(4)
+    banner.set_margin_top(4)
+
+    icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+    icon.set_pixel_size(20)
+    icon.set_valign(Gtk.Align.START)
+    icon.set_margin_top(2)
+    banner.append(icon)
+
+    label = Gtk.Label(label=text)
+    label.add_css_class("category-safety-banner-label")
+    label.set_wrap(True)
+    label.set_xalign(0)
+    label.set_hexpand(True)
+    banner.append(label)
+
+    btn_dismiss = Gtk.Button(icon_name="window-close-symbolic")
+    btn_dismiss.add_css_class("flat")
+    btn_dismiss.set_valign(Gtk.Align.START)
+    btn_dismiss.set_tooltip_text("Dismiss this safety tip")
+
+    def on_dismiss(_b):
+        dismissed = app.ui_settings.setdefault("category_banners_dismissed", [])
+        if category not in dismissed:
+            dismissed.append(category)
+        if hasattr(app, "_save_ui_settings"):
+            app._save_ui_settings()
+        banner.set_visible(False)
+
+    btn_dismiss.connect("clicked", on_dismiss)
+    banner.append(btn_dismiss)
+    return banner
+
+
+def _build_slider_page(
+    app, title: str, icon: str, name: str, groups: list
+) -> Gtk.ScrolledWindow:
     """Build slider configuration pages dynamically based on category lists"""
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_vexpand(True)
     scrolled.set_name(name)
     scrolled.get_title = lambda: title
-    
+
     clamp = Adw.Clamp()
     clamp.set_maximum_size(1000)
     clamp.set_margin_top(24)
@@ -533,14 +797,29 @@ def _build_slider_page(app, title: str, icon: str, name: str, groups: list) -> G
     clamp.set_margin_start(16)
     clamp.set_margin_end(16)
     scrolled.set_child(clamp)
-    
+
     main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     clamp.set_child(main_box)
+
+    # ── C5: category-level safety banner at the top of each tuning sub-tab ──
+    # Derives the category from the first parameter in the first group.
+    # Dismissible per-category, persisted in ui_settings["category_banners_dismissed"].
+    first_group_params = groups[0][2] if groups else []
+    banner_category = (
+        first_group_params[0].get("category") if first_group_params else None
+    )
+    if banner_category and banner_category in _SAFETY_BANNERS:
+        dismissed = app.ui_settings.get("category_banners_dismissed", [])
+        if banner_category not in dismissed:
+            banner = _build_category_safety_banner(
+                app, banner_category, _SAFETY_BANNERS[banner_category]
+            )
+            main_box.append(banner)
 
     for grp_title, grp_desc, param_list in groups:
         header_box = _build_section_header(grp_title, icon)
         main_box.append(header_box)
-        
+
         grp = Adw.PreferencesGroup()
         if grp_desc:
             grp.set_description(grp_desc)
@@ -553,7 +832,9 @@ def _build_slider_page(app, title: str, icon: str, name: str, groups: list) -> G
                 getattr(app, "supported_params", set()),
             )
 
-            row = _build_slider_row(meta, app.current_info, app.pending_settings, app, is_supported)
+            row = _build_slider_row(
+                meta, app.current_info, app.pending_settings, app, is_supported
+            )
             grp.add(row)
             app._slider_rows[meta["param"]] = row
 
@@ -562,13 +843,149 @@ def _build_slider_page(app, title: str, icon: str, name: str, groups: list) -> G
     return scrolled
 
 
+def _build_tuning_page(app) -> Gtk.Box:
+    """Build the consolidated tuning page with tabbed sub-navigation.
+
+    Replaces the five separate sidebar entries (Power, Clocks, Current, Thermal,
+    Undervolt) with a single sidebar entry. Each former page becomes a sub-tab
+    rendered via a nested Adw.ViewStack + Adw.ViewSwitcherBar, mirroring the
+    pattern GNOME Settings uses for sub-navigation.
+
+    `_build_slider_page` is reused unchanged for each category; it still
+    registers slider rows in `app._slider_rows`, so refresh/apply/conflict logic
+    is unaffected.
+    """
+    tuning_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    tuning_box.set_name("tuning")
+    tuning_box.get_title = lambda: "Tuning"
+
+    # Nested ViewStack: one child per category (former slider page)
+    tuning_stack = Adw.ViewStack()
+    tuning_stack.set_vexpand(True)
+
+    power_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "power"]
+    timing_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "timing"]
+    power_page = _build_slider_page(
+        app,
+        "Power",
+        "battery-symbolic",
+        "tuning-power",
+        [
+            (
+                "Power Limits",
+                "STAPM and PPT power envelope \u2014 values in mW, shown in W",
+                power_params,
+            ),
+            (
+                "Time Constants",
+                "STAPM and Slow PPT averaging windows (seconds)",
+                timing_params,
+            ),
+        ],
+    )
+    tuning_stack.add_titled_with_icon(power_page, "power", "Power", "battery-symbolic")
+
+    clocks_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "clocks"]
+    clocks_page = _build_slider_page(
+        app,
+        "Clocks",
+        "system-run-symbolic",
+        "tuning-clocks",
+        [
+            (
+                "Clockspeed Limits",
+                "Manual overclock limits and engine frequency boundaries (MHz)",
+                clocks_params,
+            )
+        ],
+    )
+    tuning_stack.add_titled_with_icon(
+        clocks_page, "clocks", "Clocks", "system-run-symbolic"
+    )
+
+    current_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "current"]
+    current_page = _build_slider_page(
+        app,
+        "Current",
+        "thunderbolt-symbolic",
+        "tuning-current",
+        [
+            (
+                "Current Limits",
+                "TDC and EDC current envelope \u2014 values in mA, shown in A",
+                current_params,
+            )
+        ],
+    )
+    tuning_stack.add_titled_with_icon(
+        current_page, "current", "Current", "thunderbolt-symbolic"
+    )
+
+    thermal_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "thermal"]
+    thermal_page = _build_slider_page(
+        app,
+        "Thermal",
+        "display-brightness-symbolic",
+        "tuning-thermal",
+        [
+            (
+                "Temperature Limits",
+                "CPU and skin temperature ceilings (\u00b0C)",
+                thermal_params,
+            )
+        ],
+    )
+    tuning_stack.add_titled_with_icon(
+        thermal_page, "thermal", "Thermal", "display-brightness-symbolic"
+    )
+
+    undervolt_params = [
+        m for m in ryzen.SETTINGS_PARAMS if m["category"] == "undervolt"
+    ]
+    co_global = [
+        m for m in undervolt_params if m["param"] in ("set-coall", "set-cogfx")
+    ]
+    co_per_core = [m for m in undervolt_params if m["param"].startswith("set-coper-")]
+    undervolt_page = _build_slider_page(
+        app,
+        "Undervolt",
+        "cpu-symbolic",
+        "tuning-undervolt",
+        [
+            (
+                "Global Curve Optimizer",
+                "All-core and integrated GPU offset (negative for undervolt, positive for overvolt)",
+                co_global,
+            ),
+            ("Per Core Curve Optimizer", "Individual CPU core offsets", co_per_core),
+        ],
+    )
+    tuning_stack.add_titled_with_icon(
+        undervolt_page, "undervolt", "Undervolt", "computer-symbolic"
+    )
+
+    # ViewSwitcherBar at the bottom of the tuning area drives the nested stack.
+    switcher_bar = Adw.ViewSwitcherBar()
+    switcher_bar.set_stack(tuning_stack)
+    switcher_bar.set_reveal(True)
+
+    tuning_box.append(tuning_stack)
+    tuning_box.append(switcher_bar)
+
+    # Expose references for the window title subtitle and sub-tab persistence.
+    app.tuning_stack = tuning_stack
+    app.tuning_switcher_bar = switcher_bar
+
+    return tuning_box
+
+
 def _build_profiles_page(app) -> Gtk.ScrolledWindow:
     """Build the profiles manager page so we can save and load settings"""
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_vexpand(True)
     scrolled.set_name("profiles")
     scrolled.get_title = lambda: "Profiles"
-    
+
     clamp = Adw.Clamp()
     clamp.set_maximum_size(1000)
     clamp.set_margin_top(24)
@@ -576,23 +993,27 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
     clamp.set_margin_start(16)
     clamp.set_margin_end(16)
     scrolled.set_child(clamp)
-    
+
     main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     clamp.set_child(main_box)
 
-    main_box.append(_build_section_header("Save Current Profile", "document-save-symbolic"))
-    
+    main_box.append(
+        _build_section_header("Save Current Profile", "document-save-symbolic")
+    )
+
     grp_save = Adw.PreferencesGroup()
-    grp_save.set_description("Save your current tuning state as a reusable power profile")
+    grp_save.set_description(
+        "Save your current tuning state as a reusable power profile"
+    )
 
     name_row = Adw.EntryRow()
     name_row.set_title("Profile Name")
-    
+
     btn_save = Gtk.Button(label="Save Profile")
     btn_save.add_css_class("suggested-action")
     btn_save.add_css_class("pill")
     btn_save.set_valign(Gtk.Align.CENTER)
-    
+
     name_row.add_suffix(btn_save)
     grp_save.add(name_row)
     main_box.append(grp_save)
@@ -619,7 +1040,10 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
             list_box.remove(child)
 
         # Keep UI dropdowns in sync so they show the updated profiles list
-        if hasattr(app, "update_automation_dropdowns") and app.update_automation_dropdowns:
+        if (
+            hasattr(app, "update_automation_dropdowns")
+            and app.update_automation_dropdowns
+        ):
             app.update_automation_dropdowns()
 
         profiles = ryzen.load_profiles()
@@ -627,7 +1051,9 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
         if not profiles:
             empty_row = Adw.ActionRow()
             empty_row.set_title("No saved profiles")
-            empty_row.set_subtitle("Type a name above to create your first custom profile.")
+            empty_row.set_subtitle(
+                "Type a name above to create your first custom profile."
+            )
             empty_row.set_sensitive(False)
             list_box.append(empty_row)
             return
@@ -635,7 +1061,7 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
         for name, settings in sorted(profiles.items()):
             row = Adw.ActionRow()
             row.set_title(name)
-            
+
             # Format and show a quick preview of the saved parameter values
             summary_parts = []
             for k, v in settings.items():
@@ -650,13 +1076,17 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                 overflow = len(summary_parts) - max_summary
                 summary_parts = summary_parts[:max_summary]
                 summary_parts.append(f"... and {overflow} more")
-            summary_text = ", ".join(summary_parts) if summary_parts else "No parameters configured"
+            summary_text = (
+                ", ".join(summary_parts)
+                if summary_parts
+                else "No parameters configured"
+            )
             row.set_subtitle(summary_text)
 
             btn_apply = Gtk.Button(icon_name="object-select-symbolic")
             btn_apply.add_css_class("flat")
             btn_apply.set_tooltip_text(f"Apply '{name}' profile")
-            
+
             btn_delete = Gtk.Button(icon_name="user-trash-symbolic")
             btn_delete.add_css_class("flat")
             btn_delete.add_css_class("destructive-action")
@@ -666,11 +1096,15 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
             def make_on_apply(p_name, p_settings):
                 def on_apply(_btn):
                     # 1. Clear out any pending or applied settings that are not in the profile
-                    keys_to_remove = [k for k in app.pending_settings if k not in p_settings]
+                    keys_to_remove = [
+                        k for k in app.pending_settings if k not in p_settings
+                    ]
                     for k in keys_to_remove:
                         del app.pending_settings[k]
-                    
-                    keys_to_remove_applied = [k for k in app.applied_settings if k not in p_settings]
+
+                    keys_to_remove_applied = [
+                        k for k in app.applied_settings if k not in p_settings
+                    ]
                     for k in keys_to_remove_applied:
                         del app.applied_settings[k]
 
@@ -686,11 +1120,11 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                         slider = getattr(row_widget, "_slider", None)
                         if not slider:
                             continue
-                        
+
                         meta = getattr(row_widget, "_param_meta", None)
                         if not meta:
                             continue
-                            
+
                         row_widget._updating_programmatically = True
                         if param in p_settings:
                             val = float(p_settings[param])
@@ -705,21 +1139,25 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                                 val = float(meta.get("default", meta["min"]))
                             slider.set_value(val)
                         row_widget._updating_programmatically = False
-                        
+
                         if hasattr(row_widget, "_update_val_label"):
                             row_widget._update_val_label(slider, param in p_settings)
 
                     app._show_toast(f"Applying profile '{p_name}'...", is_error=False)
-                    
+
                     # 4. Determine diff and execute apply
                     diff_settings = {
-                        k: v for k, v in p_settings.items()
+                        k: v
+                        for k, v in p_settings.items()
                         if app.applied_settings.get(k) != v
                     }
                     if diff_settings:
                         app._execute_apply(diff_settings)
                     else:
-                        app._show_toast(f"Profile '{p_name}' is already applied.", is_error=False)
+                        app._show_toast(
+                            f"Profile '{p_name}' is already applied.", is_error=False
+                        )
+
                 return on_apply
 
             def make_on_delete(p_name):
@@ -730,6 +1168,7 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                         ryzen.save_profiles(all_profiles)
                         app._show_toast(f"Profile '{p_name}' deleted.", is_error=False)
                         refresh_profiles()
+
                 return on_delete
 
             btn_apply.connect("clicked", make_on_apply(name, settings))
@@ -746,16 +1185,16 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
         if not name:
             app._show_toast("Please enter a profile name.", is_error=True)
             return
-        
+
         current_settings = dict(app.pending_settings)
         if not current_settings:
             app._show_toast("No settings are configured to save.", is_error=True)
             return
-            
+
         profiles = ryzen.load_profiles()
         profiles[name] = current_settings
         ryzen.save_profiles(profiles)
-        
+
         name_row.set_text("")
         app._show_toast(f"Profile '{name}' saved successfully!", is_error=False)
         refresh_profiles()

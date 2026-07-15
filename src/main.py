@@ -1,16 +1,18 @@
 """Main GTK application coordinator"""
-import os
+
 import json
 import logging
+import os
 import threading
 
-from gi.repository import Gtk, Adw, Gdk, Gio, GLib
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 import ryzen
 import styles
 import ui as ui_module
-from monitor import MonitorMixin
+import widgets
 from actions import ActionsMixin
+from monitor import MonitorMixin
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -18,7 +20,6 @@ log = logging.getLogger(__name__)
 APP_ID = "com.marley.ryzenadj-gtk"
 APP_NAME = "Ryzenadj-gtk"
 APP_VER = "1.8.4"
-
 
 
 class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
@@ -47,16 +48,26 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             "battery_profile": "",
             "persistence_enabled": False,
             "persistence_interval": 30,
-            "enthusiast_mode": False
+            "enthusiast_mode": False,
+            "first_run": True,
+            "category_banners_dismissed": [],  # C5: per-category safety banner dismissals
+            "enthusiast_warned": False,  # C5: one-time enthusiast-mode education
         }
         self._persistence_ticks: int = 0
         self.last_ac_state: bool | None = None
         self.dbus_system_connection = None
-        self.btn_refresh = None          # set by build_main_window
-        self.btn_apply = None            # set by build_main_window
-        self.window_title = None         # set by build_main_window
-        self._auth_granted: bool | None = None  # Track if sudo authentication is granted (None = unchecked, True = yes, False = denied)
+        self.btn_refresh = None  # set by build_main_window
+        self.btn_apply = None  # set by build_main_window
+        self.window_title = None  # set by build_main_window
+        self._auth_granted: bool | None = (
+            None  # Track if sudo authentication is granted (None = unchecked, True = yes, False = denied)
+        )
         self.gfx_reboot_required = False
+        # C5: post-apply reactive monitoring state (set by _execute_apply)
+        self._post_apply_monitor_until: float = 0.0
+        self._post_apply_temp_baseline = None
+        self._post_apply_temp_warned: bool = False
+        self._post_apply_read_failed_warned: bool = False
         self._load_ui_settings()
         self.enthusiast_mode = self.ui_settings.get("enthusiast_mode", False)
 
@@ -80,7 +91,15 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
     # ── Application lifecycle ──────────────────────────────────────────────────
 
     def do_activate(self) -> None:
-        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+        # M5: Use DEFAULT so the app follows the system theme (light or dark).
+        # Previously forced PREFER_DARK, which ignored user preferences. All CSS
+        # uses @window_fg_color / @window_bg_color / @accent_bg_color semantic
+        # variables that adapt automatically to both themes.
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
+
+        # C5: register self as the current app so deviation helpers in
+        # widgets.py can read applied_settings without threading app through.
+        widgets.set_current_app(self)
 
         # Load standard CSS
         self.css_provider.load_from_data(styles.CSS)
@@ -137,17 +156,21 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             self.dbus_system_connection = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
             if self.dbus_system_connection:
                 self.dbus_system_connection.signal_subscribe(
-                    "org.freedesktop.login1",                  # sender
-                    "org.freedesktop.login1.Manager",          # interface
-                    "PrepareForSleep",                         # member
-                    "/org/freedesktop/login1",                 # object path
-                    None,                                      # arg0
+                    "org.freedesktop.login1",  # sender
+                    "org.freedesktop.login1.Manager",  # interface
+                    "PrepareForSleep",  # member
+                    "/org/freedesktop/login1",  # object path
+                    None,  # arg0
                     Gio.DBusSignalFlags.NONE,
-                    self.on_prepare_for_sleep                  # callback
+                    self.on_prepare_for_sleep,  # callback
                 )
-                log.info("Successfully subscribed to systemd PrepareForSleep D-Bus signal.")
+                log.info(
+                    "Successfully subscribed to systemd PrepareForSleep D-Bus signal."
+                )
         except Exception as e:
-            log.warning("Failed to connect to System D-Bus for suspend/resume tracking: %s", e)
+            log.warning(
+                "Failed to connect to System D-Bus for suspend/resume tracking: %s", e
+            )
 
         # Read hardware info asynchronously in background
         self._do_initial_load_async()
@@ -160,11 +183,15 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
 
         def fetch():
             cpu_family, info, supported, auth_ok = ryzen.get_initial_data()
-            GLib.idle_add(self._on_initial_load_done, cpu_family, info, supported, auth_ok)
+            GLib.idle_add(
+                self._on_initial_load_done, cpu_family, info, supported, auth_ok
+            )
 
         threading.Thread(target=fetch, daemon=True).start()
 
-    def _sync_sliders_to_hardware_or_pending(self, info: dict, use_pending: bool = True) -> None:
+    def _sync_sliders_to_hardware_or_pending(
+        self, info: dict, use_pending: bool = True
+    ) -> None:
         """Update slider positions to match saved or live hardware values"""
         for param, row in self._slider_rows.items():
             meta = getattr(row, "_param_meta", None)
@@ -172,7 +199,9 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             if not meta or not slider:
                 continue
 
-            is_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
+            is_supported = ryzen.is_parameter_supported(
+                param, self.cpu_family, self.supported_params
+            )
 
             if not is_supported:
                 continue
@@ -198,7 +227,9 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             if hasattr(row, "_update_val_label"):
                 row._update_val_label(slider, False)
 
-    def _on_initial_load_done(self, cpu_family: str, info: dict, supported: set, auth_ok: bool) -> bool:
+    def _on_initial_load_done(
+        self, cpu_family: str, info: dict, supported: set, auth_ok: bool
+    ) -> bool:
         """GTK thread callback: load settings into UI or show passwordless sudo error page"""
         self._refreshing = False
         if not auth_ok:
@@ -215,7 +246,9 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             desc_label = getattr(row, "_desc_label", None)
             if not meta or not desc_label:
                 continue
-            is_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
+            is_supported = ryzen.is_parameter_supported(
+                param, self.cpu_family, self.supported_params
+            )
 
             row.set_sensitive(is_supported)
 
@@ -227,41 +260,66 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
                     ryzenadj_native = param in (self.supported_params or set())
                     if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
                         desc_text = f"{desc_text} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
-            desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
+            desc_label.set_markup(
+                f"<span style='italic' size='small'>{desc_text}</span>"
+            )
 
         # Load default sliders values
         self._sync_sliders_to_hardware_or_pending(info, use_pending=True)
         self.applied_settings = dict(self.pending_settings)
         self._update_conflicts()
+        self._update_apply_button_state()
 
-        # Hide telemetry cards if the system cannot read them
+        # Keep telemetry cards visible even when data is missing — they
+        # already render "—" for unavailable values, which is far clearer
+        # than hiding the card and leaving an unexplained gap.
         for card in self._dashboard_cards:
-            val_key = getattr(card, "_val_key", None)
-            visible = val_key in info if val_key else True
-            card.set_visible(visible)
+            card.set_visible(True)
 
         self._update_dashboard_cards()
         self._update_slider_badges()
         self._update_status_label()
 
-        # Check for Secure Boot or Kernel Lockdown restrictions
+        # Check for Secure Boot, Kernel Lockdown, or missing ryzen_smu module
         diag = ryzen.check_system_lockdown_status()
+        telemetry_available = bool(info)
+        params_detected = bool(supported)
         if hasattr(self, "diagnostic_banner"):
-            is_locked = (diag["secure_boot"] or diag["lockdown_active"]) and not diag["ryzen_smu_loaded"]
-            self.diagnostic_banner.set_visible(is_locked)
+            is_locked = (diag["secure_boot"] or diag["lockdown_active"]) and not diag[
+                "ryzen_smu_loaded"
+            ]
+            # Show the banner when restrictions block access, OR when telemetry
+            # is unavailable and ryzen_smu isn't loaded (common cause of empty data)
+            show_banner = is_locked or (
+                not telemetry_available and not diag["ryzen_smu_loaded"]
+            )
+            # Also show if we got telemetry but couldn't detect supported params
+            # (ryzenadj -i partially failed — sliders may be mislabeled)
+            if telemetry_available and not params_detected:
+                show_banner = True
 
-            reasons = []
-            if diag["secure_boot"]:
-                reasons.append("Secure Boot enabled")
-            if diag["lockdown_active"]:
-                reasons.append(f"Lockdown active ({diag['lockdown_mode']})")
-            if not diag["iomem_relaxed"]:
-                reasons.append("iomem=relaxed missing")
+            self.diagnostic_banner.set_visible(show_banner)
 
-            if reasons:
-                subtitle = f"⚠️ {', '.join(reasons)}. Load 'ryzen_smu' driver or disable restrictions."
+            if is_locked:
+                self.diagnostic_banner.set_title("System Memory Lockdown Detected")
+                reasons = []
+                if diag["secure_boot"]:
+                    reasons.append("Secure Boot enabled")
+                if diag["lockdown_active"]:
+                    reasons.append(f"Lockdown active ({diag['lockdown_mode']})")
+                if not diag["iomem_relaxed"]:
+                    reasons.append("iomem=relaxed missing")
+
+                if reasons:
+                    subtitle = f"⚠️ {', '.join(reasons)}. Load 'ryzen_smu' driver or disable restrictions."
+                else:
+                    subtitle = "⚠️ Restrictions active. Load 'ryzen_smu' driver or disable restrictions."
+            elif telemetry_available and not params_detected:
+                self.diagnostic_banner.set_title("Parameter Detection Failed")
+                subtitle = "⚠️ Could not detect supported parameters. Some sliders may appear enabled even if your CPU doesn't support them. Load 'ryzen_smu' for accurate detection."
             else:
-                subtitle = "⚠️ Restrictions active. Load 'ryzen_smu' driver or disable restrictions."
+                self.diagnostic_banner.set_title("Monitoring Unavailable")
+                subtitle = "⚠️ Telemetry could not be read. Install/load the 'ryzen_smu' kernel module (e.g. pacman -S ryzen_smu-dkms) for live hardware monitoring."
             self.diagnostic_banner.set_subtitle(subtitle)
 
         # Auto apply AC/Battery profile if setting is turned on
@@ -304,13 +362,15 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
         action_theme = Gio.SimpleAction.new_stateful(
             "theme-color",
             GLib.VariantType.new("s"),
-            GLib.Variant.new_string(initial_theme)
+            GLib.Variant.new_string(initial_theme),
         )
         action_theme.connect("change-state", self.on_theme_color_changed)
         self.add_action(action_theme)
 
         # Load default accent color
-        self.on_theme_color_changed(action_theme, GLib.Variant.new_string(initial_theme))
+        self.on_theme_color_changed(
+            action_theme, GLib.Variant.new_string(initial_theme)
+        )
 
         # Keyboard shortcut bindings
         self.set_accels_for_action("app.reload", ["F5"])
@@ -331,39 +391,53 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
         theme_palettes = {
             "default": {
                 "accent": "@accent_bg_color",
-                "cpu_fg": "#4cc9f0", "cpu_bg": "rgba(76, 201, 240, 0.12)",      # Luminous Teal
-                "gpu_fg": "#f72585", "gpu_bg": "rgba(247, 37, 133, 0.12)",     # Cyberpunk Pink
+                "cpu_fg": "#4cc9f0",
+                "cpu_bg": "rgba(76, 201, 240, 0.12)",  # Luminous Teal
+                "gpu_fg": "#f72585",
+                "gpu_bg": "rgba(247, 37, 133, 0.12)",  # Cyberpunk Pink
             },
             "ryzen": {
-                "accent": "#ff3b30",                                           # Luminous Red
-                "cpu_fg": "#ffd60a", "cpu_bg": "rgba(255, 214, 10, 0.12)",     # Neon Gold
-                "gpu_fg": "#30d158", "gpu_bg": "rgba(48, 209, 88, 0.12)",      # Vibrant Green
+                "accent": "#ff3b30",  # Luminous Red
+                "cpu_fg": "#ffd60a",
+                "cpu_bg": "rgba(255, 214, 10, 0.12)",  # Neon Gold
+                "gpu_fg": "#30d158",
+                "gpu_bg": "rgba(48, 209, 88, 0.12)",  # Vibrant Green
             },
             "geforce": {
-                "accent": "#76ff03",                                           # Electric Lime
-                "cpu_fg": "#00e5ff", "cpu_bg": "rgba(0, 229, 255, 0.12)",      # Cyan
-                "gpu_fg": "#ff4081", "gpu_bg": "rgba(255, 64, 129, 0.12)",     # Bright Pink
+                "accent": "#76ff03",  # Electric Lime
+                "cpu_fg": "#00e5ff",
+                "cpu_bg": "rgba(0, 229, 255, 0.12)",  # Cyan
+                "gpu_fg": "#ff4081",
+                "gpu_bg": "rgba(255, 64, 129, 0.12)",  # Bright Pink
             },
             "intel": {
-                "accent": "#0071e3",                                           # Intel Luminous Blue
-                "cpu_fg": "#ffea00", "cpu_bg": "rgba(255, 234, 0, 0.12)",      # Sun Yellow
-                "gpu_fg": "#00ff41", "gpu_bg": "rgba(0, 255, 65, 0.12)",       # Matrix Green
+                "accent": "#0071e3",  # Intel Luminous Blue
+                "cpu_fg": "#ffea00",
+                "cpu_bg": "rgba(255, 234, 0, 0.12)",  # Sun Yellow
+                "gpu_fg": "#00ff41",
+                "gpu_bg": "rgba(0, 255, 65, 0.12)",  # Matrix Green
             },
             "arch": {
-                "accent": "#1793d1",                                           # Arch Blue
-                "cpu_fg": "#bf5af2", "cpu_bg": "rgba(191, 90, 242, 0.12)",     # Luminous Purple
-                "gpu_fg": "#ff9f0a", "gpu_bg": "rgba(255, 159, 10, 0.12)",     # Orange
+                "accent": "#1793d1",  # Arch Blue
+                "cpu_fg": "#bf5af2",
+                "cpu_bg": "rgba(191, 90, 242, 0.12)",  # Luminous Purple
+                "gpu_fg": "#ff9f0a",
+                "gpu_bg": "rgba(255, 159, 10, 0.12)",  # Orange
             },
             "saints": {
-                "accent": "#af52de",                                           # Saints Purple
-                "cpu_fg": "#ff3700", "cpu_bg": "rgba(255, 55, 0, 0.12)",       # Hot Orange
-                "gpu_fg": "#5eebff", "gpu_bg": "rgba(94, 235, 255, 0.12)",     # Sky Blue
+                "accent": "#af52de",  # Saints Purple
+                "cpu_fg": "#ff3700",
+                "cpu_bg": "rgba(255, 55, 0, 0.12)",  # Hot Orange
+                "gpu_fg": "#5eebff",
+                "gpu_bg": "rgba(94, 235, 255, 0.12)",  # Sky Blue
             },
             "noctua": {
-                "accent": "#9c6644",                                           # Noctua Brown (Vibrant)
-                "cpu_fg": "#e63946", "cpu_bg": "rgba(230, 57, 70, 0.12)",      # Red
-                "gpu_fg": "#a8dadc", "gpu_bg": "rgba(168, 218, 220, 0.12)",     # Pale Blue
-            }
+                "accent": "#9c6644",  # Noctua Brown (Vibrant)
+                "cpu_fg": "#e63946",
+                "cpu_bg": "rgba(230, 57, 70, 0.12)",  # Red
+                "gpu_fg": "#a8dadc",
+                "gpu_bg": "rgba(168, 218, 220, 0.12)",  # Pale Blue
+            },
         }
 
         palette = theme_palettes.get(color, theme_palettes["default"])
@@ -380,8 +454,12 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             css_lines.append("@define-color selection_fg_color #ffffff;")
 
             # Override standard CSS accent classes
-            css_lines.append(".suggested-action { background-color: @accent_bg_color; color: @accent_fg_color; }")
-            css_lines.append("selection { background-color: @accent_bg_color; color: @accent_fg_color; }")
+            css_lines.append(
+                ".suggested-action { background-color: @accent_bg_color; color: @accent_fg_color; }"
+            )
+            css_lines.append(
+                "selection { background-color: @accent_bg_color; color: @accent_fg_color; }"
+            )
 
         # Set dynamic color definitions
         css_lines.append(f"@define-color cpu_badge_fg {palette['cpu_fg']};")
@@ -392,7 +470,28 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
         css = "\n".join(css_lines)
         self.theme_css_provider.load_from_data(css)
 
-    # ── Toast ──────────────────────────────────────────────────────────────────
+    # ── Toast ──────────────────────────────────────────────────────────────
+
+    def _has_pending_changes(self) -> bool:
+        """Check if pending_settings differs from applied_settings."""
+        for k, v in self.pending_settings.items():
+            if self.applied_settings.get(k) != v:
+                return True
+        return False
+
+    def _update_apply_button_state(self) -> None:
+        """Visually indicate whether there are unsaved changes to apply.
+
+        Adds the 'pending' CSS class to the Apply button when there are
+        pending changes, and removes it when settings are in sync.
+        """
+        if not hasattr(self, "btn_apply") or not self.btn_apply:
+            return
+        has_changes = self._has_pending_changes()
+        if has_changes:
+            self.btn_apply.add_css_class("pending")
+        else:
+            self.btn_apply.remove_css_class("pending")
 
     def _show_toast(self, msg: str, is_error: bool = False) -> None:
         if hasattr(self, "_current_toast") and self._current_toast:
@@ -402,7 +501,12 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
                 pass
         prefix = "⚠ " if is_error else ""
         toast = Adw.Toast.new(f"{prefix}{msg}")
-        toast.set_timeout(2)
+        # Errors need more time to read (they can be multi-line from ryzenadj).
+        # Success toasts stay brief. Error toasts also get a Dismiss button.
+        toast.set_timeout(8 if is_error else 2)
+        if is_error:
+            toast.set_button_label("Dismiss")
+            toast.connect("button-clicked", lambda t: t.dismiss())
         self._current_toast = toast
         if hasattr(self, "toast_overlay") and self.toast_overlay:
             self.toast_overlay.add_toast(toast)
@@ -410,7 +514,9 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
             try:
                 self.win.add_toast(toast)
             except AttributeError:
-                log.warning("Adw.ApplicationWindow lacks add_toast, toast discarded: %s", msg)
+                log.warning(
+                    "Adw.ApplicationWindow lacks add_toast, toast discarded: %s", msg
+                )
 
     def _set_actions_sensitive(self, sensitive: bool) -> None:
         """Disable buttons while we are writing settings to hardware"""
